@@ -1,0 +1,5 @@
+andres:$2b$10$HK0nzFoZt5v5RX8Zvs3sSewReZPA/n/kw/weFeLGHDjRlvaVJTyaG
+juan:$2b$10$sHNR4gfx9CNrEmZd7NA8J.4WeyNbpL0URUv.ub5ng/eYDbwLjU8U2
+adrian:$2b$10$vBqr6zwTr8/HeZlBzSuY4u6xm40.ZiiUEt5QKZ9cUklHKyXtNPWLu
+jose:$2b$10$x82SxPUnjhQRHuloMXyXX.FuLeEFgXkSz1tfBx3g.gs/rWXPkURjW
+sebas:$2b$10$XhoFZXIafHpdpFgbscKCzu3qZqs4CBE7ZWtEIc4n2ItX1TvZYcoxq

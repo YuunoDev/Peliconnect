@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "proyecto-redes-444904",
+  "private_key_id": "47e9db701377a517c9cebede0f88cc12bac2b88b",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCnClPibGiBkbW+\nvmLC5dHCURArnePUoVSYZslIiMMy+bwbY37HxZ40H8oZa+EpswEMusw+A3V/OUf6\nGxfHqWv87XKj0TbFSfeBENgwvcFql85zb22VvlvRgf6Ad45bmp6kK0e2S7shU57X\nWsLzJT3xB8wxsdLT5gj7BBaP514/+H1jYqNvCBfm7CaOgyHQfkeKBXQ5/v7nfVlI\nQGztUjGfPHySwbkY19agDR+jBsYr4EMjL+NoFg/CKEIR5G70zbcdzQ3/eqrZGrxs\nLZH9QIqshj2WgZsIdOdigyGe8j565xKKesJr7EbBpV1toYfPhRyH1On0htie4Qp0\n4PsRlj/PAgMBAAECggEASGw3Y3fKNcc1q+5Cxqq678uSvb52neWW1n7WLW8yZsMV\nVjCksrvRNFtGFhCKbrhwL5M743U/d7ofpWYiwMwJiH9w0WrvmslPmLNzcGqNVghc\nl/sLYb3HdIYukIeFft0ChD5JmNWr3C6zsz5kQOR4Py040KD/PiVB5odmuty/Je+F\nG1SW0qtZPQDABovuJDUV+fHF3saDLX1kLCvYFpsv4yXsrmljH4gCP89g+H+B2Zoi\npy370cq4grbSzt1Vi66PZNd0kS33WPHCstRqz7TK3yZDLUlC54Ezo5W8cNezyeQJ\ns7/fjhdP3ptl653pz0VcCBQpopEHWcZsAGmkZYnqfQKBgQDT2o2z09fB9S6TkCW0\nnuP7JZfeUdlphroha6bAUMhr7IrUpo+RfQnVydy/2O9g6lsD7v9HoXbTthpgSxjA\nbnKOd1KA5i9jS+es68/K5fjhhnd5zPa28d4Dp2o9O8sjURNctVlAJ9L46eYhLLwV\nXyHu2LdOZjF7Uj2c+qVSgQAj3QKBgQDJ2S5c234SBMTG6sdaloLr8OSHzCs97EKj\nTJxNfWKpgkK7kuSujawRB0IKDBl92dEj9yGhV1vokNeN9tCdgFLC4nJ75yo8qhZf\ngT078oUx32P8sNSAUb6m0dRMVonG3F1xIxt4Qb1TnAw5xXDY0Q7C6KA+RQyAQODp\nDrwuM2qdmwKBgQDGWeoyZDWuM5DYOC4VXm61xgza6mdUlf/PKquFhB0ibuXNE+V3\nokqDD+zO8p2tb76ngC0jM9m9ftJTNfyGruIy4SUt6laT8Y2IKYDzxz2uaeeS8oRL\n5UiowyaFDmazOkWWl3RozOCKjPQaO3gdymRK7D0z+hp6DBYD0+jVxlILQQKBgAvW\nC2zwhgUCeJN9gvEh8E1rk8sOwt5fs0ymGmhE2Ps9ozIim/xMXHGnLk0uhnQlyKjG\nPhea6s3JaIpvla4Wr0O0SahQVt61zpgNGQ0h3IOfKNrRd7SKlpZrqXpMfMnHdEdF\nGsBDgpmbhfABTuu33pi5UWQ1YlVG+KlR7uD6rN7PAoGAU1r+q0zgILPvtslzTAEq\ngbjadoQdbhR9uDgq70hrJ/tnYeMZNxCGt7Nk1JcdoKFucl7TGVTZR9Tmy0FUtGsZ\nDzkMVEw/jQhokh08TZfj/0Bw8J64LCeHISHHOltpSBERBo36XsnK4t85z9Pf12vv\ne+c1nKrZPVIIPbS/88xW9FU=\n-----END PRIVATE KEY-----\n",
+  "client_email": "nodejspeliconnect@proyecto-redes-444904.iam.gserviceaccount.com",
+  "client_id": "107641510404209796537",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/nodejspeliconnect%40proyecto-redes-444904.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
