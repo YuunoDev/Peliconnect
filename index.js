@@ -9,6 +9,7 @@ const bcrypt = require('bcrypt');
 
 const { google } = require('googleapis');
 
+var mysql = require('mysql2');
 
 // Autenticación con Google
 const auth = new google.auth.GoogleAuth({
@@ -27,13 +28,21 @@ const API_KEY = 'Bearer eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI2MDhkYjEyZTBkNGM2OTU1Mzh
 app.use(cors());
 app.use(bodyParser.urlencoded({ extended:false})); 
 app.use(bodyParser.json()); 
-
-app.use(express.static(process.cwd() + '/public')); //para servir archivos estaticos
-
 app.listen(port, () => { 
     console.log(`hola servidor ejecucion en http://localhost:${port}`); 
 }) 
 
+var con = mysql.createConnection({
+  host: "peliconnect.ddns.net",
+  user: "wndarchitect",
+  password: "Wndall.?53",
+  database: "peliconnectdb"
+});
+
+con.connect(function(err) {
+  if (err) throw err;
+  console.log("Connected!");
+});
 
 async function subirArchivo(filePath, fileName) {
     try {
@@ -73,10 +82,10 @@ router.get(`/fetch_movie/:nombre`, async (req,res) =>{
     };
 
     const responseSearch = await fetch(urlSearchMovie, options)
-    .then(res => res.json())
-    .catch(e => {
-      console.log(e);
-  })
+        .then(res => res.json())
+        .catch(e => {
+        console.log(e);
+    })
 
     console.log("RESPONSE: ", responseSearch);
 
@@ -119,8 +128,9 @@ router.get(`/get_details/:id` , async (req,res) =>{
     });
 })
 
-router.get(`/get_movies`, async (req, res) => {
-    const url = 'https://api.themoviedb.org/3/discover/movie?include_adult=false&include_video=false&language=en-US&page=1&sort_by=popularity.desc';
+router.get(`/get_movies/:page`, async (req, res) => {
+    const page = req.params.page || 1; // Default to page 1 if not provided
+    const url = `https://api.themoviedb.org/3/discover/movie?include_adult=false&include_video=false&language=en-US&page=${page}&sort_by=popularity.desc`;
     const options = {
         method: 'GET',
         headers: {
@@ -143,202 +153,338 @@ router.get(`/get_movies`, async (req, res) => {
 
 })
 
-router.get(`/aniadeLista/:pelicula/:usuario`, async(req, res) =>{
+router.get(`/aniadeLista/:pelicula/:usuario/:idp`, async(req, res) =>{
     const pelicula = req.params.pelicula;
     const usuario = req.params.usuario;
+    const idp = req.params.idp; // ID de la película, si se proporciona
     let peliculaExiste = false;
-    const data = fs.readFileSync('listas.txt', 'utf8');
+    
+    try {
+        // agregar pelicula a la base de datos si es que no existe en peliculas
+        const checkMovieQuery = 'SELECT * FROM pelicula WHERE id = ?';
+        con.query(checkMovieQuery, [idp], (err, results) => {
+            if (err) {
+                console.error('Error al verificar película existente:', err);
+                return res.status(500).json({ error: 'Error interno del servidor.' });
+            }
+            if (results.length === 0) {
+                // Si la película no existe, insertarla llamando al api de TMDB, por id
+                const urlSearchMovie = `https://api.themoviedb.org/3/movie/${idp}?language=en-US`;
+                const options = {
+                    method: 'GET',
+                    headers: {
+                        accept: 'application/json',
+                        Authorization: API_KEY
+                    }
+                };
+                fetch(urlSearchMovie, options)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.results && data.results.length > 0) {
+                        const movieData = data.results[0];
+                        const insertMovieQuery = 'INSERT INTO pelicula (ID,Nombre, Genero, Año, Duracion, Imagen, Descripcion, Calificacion) VALUES (?, ?, ?, ?, ?, ?, ?)';
+                        con.query(insertMovieQuery, [
+                            idp,
+                            movieData.title,
+                            movieData.genre_ids.join(', '), // Asumiendo que tienes un campo para géneros
+                            new Date(movieData.release_date).getFullYear(),
+                            movieData.runtime || 0, // Si no hay duración, poner 0
+                            movieData.poster_path ? `https://image.tmdb.org/t/p/w500${movieData.poster_path}` : null,
+                            movieData.overview || '',
+                            movieData.vote_average ? movieData.vote_average.toString() : 'N/A'
+                        ], (err2) => {
+                            if (err2) {
+                                console.error('Error al insertar película:', err2);
+                                return res.status(500).json({ error: 'Error interno del servidor.' });
+                            }
+                            console.log('Película añadida a la base de datos');
+                        });
+                    } else {
+                        console.log('No se encontraron resultados para la película');
+                        return res.status(404).json({ error: 'Película no encontrada' });
+                    }
+                })
+            }
+               
+        });
+        // Buscar ID de usuario
+        const idQuery = 'SELECT id FROM Usuario WHERE nombre = ?';
+        
+        con.query(idQuery, [usuario], (err, results) => {
+            if (err) {
+                console.error('Error al buscar ID de usuario:', err);
+                return res.status(500).json({ error: 'Error interno del servidor.' });
+            }
 
-    // Dividir el archivo en líneas y verificar si el usuario ya existe
-    const lineas = data.split('\n').map(line => line.trim());
-    for (const linea of lineas) {
-        const [username, movie] = linea.split('|');
-        if (usuario === username && pelicula === movie) {
-            console.log('Pelicula ya registrada');
-            peliculaExiste = true;
-            break;
-        }
-    }
+            if (results.length === 0) {
+                console.log('Usuario no encontrado');
+                return res.status(404).json({ error: 'Usuario no encontrado' });
+            }
 
-    if (peliculaExiste) {
-        // Si la pelicula existe, enviar respuesta
-        res.send(false);
-    } else {
-        const movieRegister = `\n${usuario}|${pelicula}`;
-        fs.appendFileSync('listas.txt', movieRegister, 'utf8');
-            console.log('Pelicula registrada');
-            res.send(true);
+            const idUser = results[0].id;
+            console.log('ID de usuario encontrado:', idUser);
+            // Ahora buscar ID de película
 
-            subirArchivo('listas.txt', 'listas.txt');
+            const movieQuery = 'SELECT id FROM pelicula WHERE nombre = ?';
+            con.query(movieQuery, [pelicula], (err2, results2) => {
+                if (err2) {
+                    console.error('Error al buscar ID de película:', err2);
+                    return res.status(500).json({ error: 'Error interno del servidor.' });
+                }
+                if (results2.length === 0) {
+                    console.log('Película no encontrada');
+                    return res.status(404).json({ error: 'Película no encontrada' });
+                }
+                const idMovie = results2[0].id;
+                console.log('ID de película encontrado:', idMovie);
+                // Verificar si ya existe en la lista de favoritos
+                const checkQuery = 'SELECT * FROM favorito WHERE ID_usuario = ? AND ID_pelicula = ?';
+                con.query(checkQuery, [idUser, idMovie], (err3, results3) => {
+                    if (err3) {
+                        console.error('Error al verificar favorito existente:', err3);
+                        return res.status(500).json({ error: 'Error interno del servidor.' });
+                    }
+                    if (results3.length > 0) {
+                        console.log('La película ya está en la lista de favoritos');
+                        peliculaExiste = true;
+                    }
+                    // Si no existe, insertar en la lista de favoritos
+                    if (!peliculaExiste) {
+                        const insertQuery = 'INSERT INTO favorito (ID_usuario, ID_pelicula, ID_preferencia, Fecha) VALUES (?, ?, ?, ?)';
+                        // numero aleatorio entre 1 y 5
+                        const num = Math.floor(Math.random() * 5) + 1; // Genera un número entre 1 y 5
+                        con.query(insertQuery, [idUser, idMovie, num, new Date()], (err4) => {
+                            if (err4) {
+                                console.error('Error al insertar en la lista de favoritos:', err4);
+                                return res.status(500).json({ error: 'Error interno del servidor.' });
+                            }
+                            console.log('Película añadida a la lista de favoritos');
+                            res.json({ success: true, message: 'Película añadida a la lista de favoritos' });
+                        });
+                    } else {
+                        // Si la película ya existe, enviar respuesta
+                        res.json({ success: false, message: 'La película ya está en la lista de favoritos' });
+                    }
+                });
+            });
+        });
+    } catch (error) {
+        console.error('Error general:', error);
+        res.status(500).json({ error: 'Error interno del servidor.' });
     }
 })
 
-router.get(`/leerLista/:usuario`, async(req, res) =>{
+router.get(`/leerLista/:usuario`, async (req, res) => {
+    console.log('Leer lista de usuario:', req.params.usuario);
     const usuario = req.params.usuario;
 
-    const data = fs.readFileSync('listas.txt', 'utf8');
-    let peliculas = [];
+    try {
+        // Buscar ID de usuario
+        const idQuery = 'SELECT id FROM Usuario WHERE nombre = ?';
+        
+        con.query(idQuery, [usuario], (err, results) => {
+            if (err) {
+                console.error('Error al buscar ID de usuario:', err);
+                return res.status(500).json({ error: 'Error interno del servidor.' });
+            }
 
-    // Dividir el archivo en líneas y verificar si el usuario ya existe
-    const lineas = data.split('\n').map(line => line.trim());
-    for (const linea of lineas) {
-        const [username, movie] = linea.split('|');
-        if (usuario === username) {
-            console.log(movie);
-            peliculas.push(movie);
-        }
+            if (results.length === 0) {
+                console.log('Usuario no encontrado');
+                return res.status(404).json({ error: 'Usuario no encontrado' });
+            }
+
+            const idUser = results[0].id;
+            console.log('ID de usuario encontrado:', idUser);
+
+            // Ahora buscar las películas favoritas (dentro del callback)
+            const query = `SELECT P.Nombre
+                FROM favorito F 
+                JOIN pelicula P ON F.ID_pelicula = P.ID 
+                JOIN usuario U ON F.ID_usuario = U.ID
+                WHERE U.ID = ?`;
+
+            con.query(query, [idUser], (err, results) => {
+                if (err) {
+                    console.error('Error al obtener las películas favoritas:', err);
+                    return res.status(500).json({ error: 'Error interno del servidor.' });
+                }
+
+                if (results.length > 0) {
+                    console.log('Películas favoritas encontradas:', results);
+                    const peliculas = results.map(row => row.Nombre);
+                    res.json(peliculas);
+                } else {
+                    console.log('No se encontraron películas favoritas para el usuario.');
+                    res.json([]); // Enviar array vacío en lugar de error 404
+                }
+            });
+        });
+
+    } catch (error) {
+        console.error('Error general:', error);
+        res.status(500).json({ error: 'Error interno del servidor.' });
     }
+});
 
-    res.send(peliculas);
-})
 
-router.get(`/guardaReview/:usuario/:pelicula/:calificacion/:texto`, async (req, res) => {
+router.get('/guardaReview/:usuario/:pelicula/:calificacion/:texto', (req, res) => {
     const usuario = req.params.usuario;
     const pelicula = req.params.pelicula;
     const calificacion = req.params.calificacion;
     const texto = req.params.texto;
-    let reviewExiste = false;
+    idUser = '';
+    idMovie = '';
+    
+    // Verificar si el usuario existe
+    const idQuery = 'SELECT id FROM Usuario WHERE nombre = ?';
+    con.query(idQuery, [usuario], (err, results) => {
+        if (err) {
+            console.error('Error al verificar usuario:', err);
+            return res.status(500).send(false);
+        }
+        if (results.length === 0) {
+            console.log('Usuario no encontrado');
+            return res.status(404).send(false);
+        }
+        idUser = results[0].id;
+    });
 
-    const data = fs.readFileSync('reviews.txt', 'utf8');
+    // Verificar si la película existe
+    const movieQuery = 'SELECT id FROM Pelicula WHERE nombre = ?';
+    con.query(movieQuery, [pelicula], (err2, results2) => {
+        if (err2) {
+            console.error('Error al verificar película:', err2);
+            return res.status(500).send(false);
+        }
+        if (results2.length === 0) {
+            console.log('Película no encontrada');
+            return res.status(404).send(false);
+        }
+        idMovie = results2[0].id;
+    });
 
-    // Dividir el archivo en líneas y verificar si el usuario ya existe
-    const lineas = data.split('\n').map(line => line.trim());
-    for (const linea of lineas) {
-        const [username, movie] = linea.split('|');
-        if (usuario === username && pelicula === movie) {
+    // Verificar si ya existe una review del mismo usuario para la misma película
+    const checkQuery = 'SELECT * FROM Reseña WHERE ID_usuario = ? AND ID_pelicula = ?';
+    con.query(checkQuery, [idUser, idMovie], (err, results) => {
+        if (err) {
+            console.error('Error al verificar review existente:', err);
+            return res.status(500).send(false);
+        }
+
+        if (results.length > 0) {
             console.log('Review ya registrada');
-            reviewExiste = true;
-            break;
+            return res.send(false);
         }
-    }
 
-    if (reviewExiste) {
-        res.send(false);
-    }else{
-        // Construir la nueva entrada de review
-        const reviewEntry = `\n${usuario}|${pelicula}|${calificacion}|${texto}`;
-
-        try {
-            // Escribir la nueva entrada en el archivo reviews.txt
-            fs.appendFileSync('reviews.txt', reviewEntry, 'utf8');
-            subirArchivo('reviews.txt', 'reviews.txt');
-            console.log('Review registrada');
-            res.send(true); // Indicar éxito
-        } catch (err) {
-            console.error("Error al registrar la review:", err);
-            res.status(500).send(false); // Indicar fallo
-        }
-    }
-});
-
-router.get(`/leerReviews/:pelicula`, async (req, res) => {
-    const pelicula = req.params.pelicula;
-    let reviews = [];
-
-    try {
-        // Leer el archivo reviews.txt
-        const data = fs.readFileSync('reviews.txt', 'utf8');
-
-        // Dividir el archivo en líneas
-        const lineas = data.split('\n').map(line => line.trim());
-
-        // Filtrar las reseñas que coincidan con la película
-        for (const linea of lineas) {
-            if (linea) {
-                const [usuario, movie, calificacion, texto] = linea.split('|');
-                if (movie === pelicula) {
-                    reviews.push({ usuario, calificacion, texto });
-                }
+        // Insertar la nueva review
+        const insertQuery = 'INSERT INTO Reseña (ID_usuario, ID_pelicula, contenido, calificacion) VALUES (?, ?, ?, ?)';
+        con.query(insertQuery, [idUser, idMovie, texto, calificacion], (err2) => {
+            if (err2) {
+                console.error('Error al insertar review:', err2);
+                return res.status(500).send(false);
             }
-        }
 
-        // Enviar las reseñas como respuesta
-        res.json(reviews);
-    } catch (err) {
-        console.error("Error al leer las reseñas:", err);
-        res.status(500).send("Error interno del servidor.");
-    }
+            console.log('Review registrada');
+            res.send(true);
+        });
+    });
 });
 
-router.get(`/login/:user/:pass`, async(req, res) => {
+router.get('/leerReviews/:pelicula', (req, res) => {
+    const pelicula = req.params.pelicula;
+
+    // Verificar si la película existe
+    const movieQuery = 'SELECT id FROM Pelicula WHERE nombre = ?';
+    con.query(movieQuery, [pelicula], (err2, results2) => {
+        if (err2) {
+            console.error('Error al verificar película:', err2);
+            return res.status(500).send(false);
+        }
+
+        if (results2.length === 0) {
+            console.log('Película no encontrada');
+            return res.status(404).send(false);
+        }
+
+        const idMovie = results2[0].id;
+
+        const query = `
+            SELECT u.Nombre AS usuario, r.Contenido AS texto, r.Calificacion AS calificacion
+            FROM Usuario u
+            INNER JOIN Reseña r ON u.ID = r.ID_usuario
+            WHERE r.ID_pelicula = ?
+        `;
+
+        con.query(query, [idMovie], (err, results) => {
+            if (err) {
+                console.error('Error al obtener las reseñas:', err);
+                return res.status(500).send('Error interno del servidor.');
+            }
+
+            res.json(results);
+        });
+    });
+});
+
+router.get('/login/:user/:pass', (req, res) => {
     const user = req.params.user;
     const pass = req.params.pass;
 
-     // Leer el archivo de usuarios
-     fs.readFile('usuarios.txt', 'utf8', (err, data) => {
+    // Consulta para verificar si existe un usuario con esa contraseña
+    const query = 'SELECT * FROM Usuario WHERE nombre = ? AND contraseña = ?';
+    con.query(query, [user, pass], (err, results) => {
         if (err) {
-            console.error("Error al leer el archivo:", err);
-            return res.status(500).send("Error interno del servidor.");
+            console.error('Error al verificar credenciales:', err);
+            return res.status(500).send('Error interno del servidor.');
         }
 
-        // Dividir el archivo en líneas y verificar las credenciales
-        const lineas = data.split('\n').map(line => line.trim());
-        let usuarioValido = false;
-
-        for (const linea of lineas) {
-            const [username, hashedPass] = linea.split(':');
-            if (user === username) {
-                // Verificar la contraseña hasheada
-                const isMatch = bcrypt.compare(pass, hashedPass);
-                if (isMatch) {
-                    usuarioValido = true;
-                    break;
-                }
-            }
-        }
-
-        // Responder según el resultado
-        if (usuarioValido) {
-            console.log("Sesion Iniciada");
+        if (results.length > 0) {
+            console.log('Sesión iniciada');
             res.send(true);
         } else {
-            console.log("Fallo en inicio de sesion");
+            console.log('Fallo en inicio de sesión');
             res.send(false);
         }
     });
-})
+});
 
 router.get(`/registrarUsuario/:user/:pass`, async (req, res) =>{
     console.log('entro a funcion');
     const user = req.params.user;
     const pass = req.params.pass;
-    let usuarioExiste = false;
 
-    try {
-        // Leer el archivo de usuarios de forma síncrona
-        const data = fs.readFileSync('usuarios.txt', 'utf8');
-
-        // Dividir el archivo en líneas y verificar si el usuario ya existe
-        const lineas = data.split('\n').map(line => line.trim());
-        for (const linea of lineas) {
-            const [username] = linea.split(':');
-            if (user === username) {
-                console.log('Usuario ya existente');
-                usuarioExiste = true;
-                break;
-            }
+    // Verificar si el usuario ya existe
+    con.query('SELECT * FROM Usuario WHERE nombre = ?', [user], async (err, results) => {
+        if (err) {
+            console.error('Error en la consulta:', err);
+            return res.status(500).send('Error interno');
         }
 
-        if (usuarioExiste) {
-            // Si el usuario existe, enviar respuesta
-            res.send(false);
-        } else {
-            // Si no existe, agregar el usuario
-            // Generar hash para la contraseña
-        const salt = await bcrypt.genSalt(10); // Generar salt (aleatoriedad)
-        const hashedPass = await bcrypt.hash(pass, salt); // Hashear contraseña
-
-        // Guardar en el archivo
-        const userRegister = `\n${user}:${hashedPass}`;
-        fs.appendFileSync('usuarios.txt', userRegister, 'utf8');
-        subirArchivo('usuarios.txt', 'usuarios.txt');
-        console.log('Usuario registrado');
-        res.send(true);
+        if (results.length > 0) {
+            console.log('Usuario ya existente');
+            return res.send(false);
         }
-    } catch (err) {
-        console.error("Error al procesar el archivo:", err);
-        res.status(500).send("Error interno del servidor.");
-    }
+
+        // Usuario no existe, registrarlo
+        try {
+            con.query(
+                'INSERT INTO Usuario (nombre, contraseña) VALUES (?, ?)',
+                [user, pass],
+                (err2, results2) => {
+                    if (err2) {
+                        console.error('Error al insertar usuario:', err2);
+                        return res.status(500).send('Error al registrar usuario');
+                    }
+
+                    console.log('Usuario registrado');
+                    res.send(true);
+                }
+            );
+        } catch (error) {
+            console.error('Error al registrar ususario:', error);
+            res.status(500).send('Error interno');
+        }
+    });
 })
 
 app.use(router);
