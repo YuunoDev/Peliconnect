@@ -6,7 +6,8 @@ Una aplicación web para gestión y streaming de contenido multimedia, desarroll
 
 La aplicación está disponible en: **[peliconnect.ddns.net](http://peliconnect.ddns.net)**
 
-*Utilizamos No-IP para mantener una URL estable sin depender de cambios de IP dinámica.*
+*Utilizamos No-IP para mantener una URL estable sin depender de cambios de IP dinámica, obvio cambioando nosotros la ip en la pagina de No-IP*
+*Recordar que es local*
 
 ## 🛠️ Tecnologías
 
