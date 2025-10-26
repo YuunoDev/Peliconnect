@@ -34,6 +34,7 @@ app.listen(port, () => {
 
 var con = mysql.createConnection({
   host: "peliconnect.ddns.net",
+  port: 3306,
   user: "wndarchitect",
   password: "Wndall.?53",
   database: "peliconnectdb"
