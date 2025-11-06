@@ -41,7 +41,7 @@ var con = mysql.createConnection({
   database: "peliconnect"
 });
 
-connection.connect((err) => {
+con.connect((err) => {
   if (err) {
     console.error("Error al conectar a MySQL:", err);
     return;
@@ -281,15 +281,16 @@ router.get(`/aniadeLista/:pelicula/:usuario`, async(req, res) =>{
 router.get(`/leerLista/:id`, async (req, res) => {
     console.log('Leer lista de usuario:', req.params.id);
     const userId = req.params.id;
+    log('ID de usuario recibido:', userId);
 
     try {
         // Buscar ID de usuario
         console.log('ID de usuario encontrado:', userId);
 
             // Ahora buscar las películas favoritas (dentro del callback)
-            const query = `SELECT ID_pelicula FROM favorito where ID_usuario = 501;`;
+            const query = `SELECT ID_pelicula FROM favorito where ID_usuario = ?`;
 
-        connection.query(query, [userId], (err, results) => {
+        con.query(query, [userId], (err, results) => {
             if (err) {
                 console.error('Error al obtener las películas favoritas:', err);
                 return res.status(500).json({ error: 'Error interno del servidor.' });
@@ -304,7 +305,6 @@ router.get(`/leerLista/:id`, async (req, res) => {
                     res.json([]); // Enviar array vacío en lugar de error 404
                 }
             });
-        });
 
     } catch (error) {
         console.error('Error general:', error);
@@ -314,14 +314,14 @@ router.get(`/leerLista/:id`, async (req, res) => {
 
 
 router.post('/guardaReview', (req, res) => {
-    log('Registrar review' + req.body);
     const { usuario, pelicula, texto, calificacion } = req.body;
+    log('Guardar review para usuario:', usuario, 'película:', pelicula);
     idUser = '';
     idMovie = '';
 
     // Verificar si el usuario existe
-    const idQuery = 'SELECT id FROM Usuario WHERE id = ?';
-    connection.query(idQuery, [usuario], (err, results) => {
+    const idQuery = 'SELECT id FROM Usuario WHERE Nombre = ?';
+    con.query(idQuery, [usuario], (err, results) => {
         if (err) {
             console.error('Error al verificar usuario:', err);
             return res.status(500).send(false);
@@ -368,7 +368,7 @@ router.get('/leerReviews/:pelicula', (req, res) => {
     
 
     const query = `
-        SELECT u.Nombre AS usuario, r.Contenido AS texto, r.Calificacion AS calificacion
+        SELECT u.Nombre AS usuario, r.Contenido AS texto, r.Calificacion AS calificacion, r.ID as idReview
         FROM Usuario u
         INNER JOIN review r ON u.ID = r.ID_usuario
         WHERE r.ID_pelicula = ?
@@ -393,7 +393,7 @@ router.get('/borrarReview/:id/:pelicula', (req, res) => {
 
     // Verificar si la película existe
     const movieQuery = 'SELECT id FROM Pelicula WHERE nombre = ?';
-    connection.query(movieQuery, [pelicula], (err2, results2) => {
+    con.query(movieQuery, [pelicula], (err2, results2) => {
         if (err2) {
             console.error('Error al verificar película:', err2);
             return res.status(500).send(false);
@@ -405,7 +405,7 @@ router.get('/borrarReview/:id/:pelicula', (req, res) => {
         idMovie = results2[0].id;
         // Borrar la review
         const deleteQuery = 'DELETE FROM review WHERE ID_usuario = ? AND ID_pelicula = ?';
-        connection.query(deleteQuery, [userId, idMovie], (err3) => {
+        con.query(deleteQuery, [userId, idMovie], (err3) => {
             if (err3) {
                 console.error('Error al borrar review:', err3);
                 return res.status(500).send(false);
@@ -429,7 +429,7 @@ router.get('/editarReview/:id/:pelicula/:calificacion/:texto', (req, res) => {
 
     // Verificar si la película existe
     const movieQuery = 'SELECT id FROM Pelicula WHERE nombre = ?';
-    connection.query(movieQuery, [pelicula], (err2, results2) => {
+    con.query(movieQuery, [pelicula], (err2, results2) => {
         if (err2) {
             console.error('Error al verificar película:', err2);
             return res.status(500).send(false);
@@ -441,7 +441,7 @@ router.get('/editarReview/:id/:pelicula/:calificacion/:texto', (req, res) => {
         idMovie = results2[0].id;
         // Actualizar la review
         const updateQuery = 'UPDATE review SET contenido = ?, calificacion = ? WHERE ID_usuario = ? AND ID_pelicula = ?';
-        connection.query(updateQuery, [texto, calificacion, userId, idMovie], (err3) => {
+        con.query(updateQuery, [texto, calificacion, userId, idMovie], (err3) => {
             if (err3) {
                 console.error('Error al editar review:', err3);
                 return res.status(500).send(false);
@@ -454,28 +454,59 @@ router.get('/editarReview/:id/:pelicula/:calificacion/:texto', (req, res) => {
 
 // Iniciar sesión
 router.post('/login', (req, res) => {
-    const user = req.body.user;
-    const pass = req.body.pass;
+  const user = req.body.user;
+  const pass = req.body.pass;
 
-    const passhash = bcrypt.hashSync(pass, 10);
+  if (!user || !pass) {
+    return res.status(400).send('Faltan credenciales');
+  }
 
-    // Consulta para verificar si existe un usuario con esa contraseña
-    const query = 'SELECT * FROM Usuario WHERE nombre = ? AND contraseña = ?';
-    connection.query(query, [user, passhash], (err, results) => {
-        if (err) {
-            console.error('Error al verificar credenciales:', err);
-            return res.status(500).send('Error interno del servidor.');
+  const query = 'SELECT * FROM Usuario WHERE nombre = ?';
+  con.query(query, [user], async (err, results) => {
+    if (err) {
+      console.error('Error al verificar credenciales:', err);
+      return res.status(500).send('Error interno del servidor.');
+    }
+
+    if (results.length === 0) {
+      console.log('Usuario no encontrado');
+      return res.send(false);
+    }
+
+    const userData = results[0];
+
+    log('Datos de usuario encontrados:', userData);
+
+    console.log('Contraseña ingresada:', pass);
+    console.log('Hash almacenado:', userData.Password);
+
+    if (!userData.Password) {
+      console.error('El hash de contraseña no está almacenado correctamente');
+      return res.status(500).send('Error en datos de usuario');
+    }
+
+    try {
+      const match = await bcrypt.compare(pass, userData.Password);
+
+      if (match) {
+        console.log('Sesión iniciada correctamente');
+        respuesta = {
+            id: userData.ID,
+            admin: userData.Admin
         }
-
-        if (results.length > 0) {
-            console.log('Sesión iniciada');
-            res.send(true);
-        } else {
-            console.log('Fallo en inicio de sesión');
-            res.send(false);
-        }
-    });
+        res.send(respuesta);
+      } else {
+        console.log('Contraseña incorrecta');
+        res.send(false);
+      }
+    } catch (error) {
+      console.error('Error al comparar contraseñas:', error);
+      res.status(500).send('Error interno al comparar contraseñas');
+    }
+  });
 });
+
+
 
 // Registrar usuario
 router.post(`/registrarUsuario`, async (req, res) => {
@@ -484,7 +515,7 @@ router.post(`/registrarUsuario`, async (req, res) => {
     const pass = req.body.pass;
 
     // Verificar si el usuario ya existe
-    connection.query('SELECT * FROM Usuario WHERE nombre = ?', [user], async (err, results) => {
+    con.query('SELECT * FROM Usuario WHERE nombre = ?', [user], async (err, results) => {
         if (err) {
             console.error('Error en la consulta:', err);
             return res.status(500).send('Error interno');
@@ -500,7 +531,7 @@ router.post(`/registrarUsuario`, async (req, res) => {
             // encriptar contraseña con bcrypt
             const hashedPass = await bcrypt.hash(pass, 10);
 
-            connection.query(
+            con.query(
                 'INSERT INTO Usuario (nombre, password) VALUES (?, ?)',
                 [user, hashedPass],
                 (err2, results2) => {
@@ -528,7 +559,7 @@ router.get('/eliminarUsuario/:id',  (req, res) => {
 
     // Marcar usuario como eliminado
     const query = 'UPDATE Usuario SET activo = 0 WHERE id = ?';
-    connection.query(query, [userId], (err, results) => {
+    con.query(query, [userId], (err, results) => {
         if (err) {
             console.error('Error al eliminar usuario:', err);
             return res.status(500).send('Error interno del servidor.');
@@ -551,7 +582,7 @@ router.get('/activarUsuario/:id', (req, res) => {
     console.log('ID de usuario a activar:', userId);
     // Marcar usuario como activo
     const query = 'UPDATE Usuario SET activo = 1 WHERE id = ?';
-    connection.query(query, [userId], (err, results) => {
+    con.query(query, [userId], (err, results) => {
         if (err) {
             console.error('Error al activar usuario:', err);
             return res.status(500).send('Error interno del servidor.');
@@ -569,9 +600,12 @@ router.get('/activarUsuario/:id', (req, res) => {
 
 // 🟢 Obtener todos los reportes
 router.get("/report/view", (req, res) => {
+  console.log("entre a report/view");
+  
   const sql = "SELECT * FROM reporte";
-  connection.query(sql, (err, results) => {
+  con.query(sql, (err, results) => {
     if (err) return res.status(500).json({ error: err.message });
+    log(results);
     res.json(results);
   });
 });
@@ -580,7 +614,7 @@ router.get("/report/view", (req, res) => {
 router.get("/report/:id", (req, res) => {
   const { id } = req.params;
   const sql = "SELECT * FROM reporte WHERE id_reporte = ?";
-  connection.query(sql, [id], (err, results) => {
+  con.query(sql, [id], (err, results) => {
     if (err) return res.status(500).json({ error: err.message });
     if (results.length === 0) return res.status(404).json({ message: "Reporte no encontrado" });
     res.json(results[0]);
@@ -589,10 +623,10 @@ router.get("/report/:id", (req, res) => {
 
 // 🟡 Crear un nuevo reporte
 router.post("/report", (req, res) => {
-    console.log("entro a crear reporte");
+  console.log("entro a crear reporte");
   const { descripcion, id_user, id_review, fecha_reporte } = req.body;
   const sql = "INSERT INTO reporte (descripcion, id_user, id_review, fecha_reporte) VALUES (?, ?, ?, ?)";
-  connection.query(sql, [descripcion, id_user, id_review, fecha_reporte], (err, result) => {
+  con.query(sql, [descripcion, id_user, id_review, fecha_reporte], (err, result) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json({ message: "Reporte creado", id: result.insertId });
   });
@@ -603,7 +637,7 @@ router.put("/report/:id", (req, res) => {
   const { id } = req.params;
   const { descripcion, id_user, id_review, fecha_reporte } = req.body;
   const sql = "UPDATE reporte SET descripcion = ?, id_user = ?, id_review = ?, fecha_reporte = ? WHERE id_reporte = ?";
-  connection.query(sql, [descripcion, id_user, id_review, fecha_reporte, id], (err, result) => {
+  con.query(sql, [descripcion, id_user, id_review, fecha_reporte, id], (err, result) => {
     if (err) return res.status(500).json({ error: err.message });
     if (result.affectedRows === 0) return res.status(404).json({ message: "Reporte no encontrado" });
     res.json({ message: "Reporte actualizado" });
@@ -614,7 +648,7 @@ router.put("/report/:id", (req, res) => {
 router.delete("/report/:id", (req, res) => {
   const { id } = req.params;
   const sql = "DELETE FROM reporte WHERE id_reporte = ?";
-  connection.query(sql, [id], (err, result) => {
+  con.query(sql, [id], (err, result) => {
     if (err) return res.status(500).json({ error: err.message });
     if (result.affectedRows === 0) return res.status(404).json({ message: "Reporte no encontrado" });
     res.json({ message: "Reporte eliminado" });
