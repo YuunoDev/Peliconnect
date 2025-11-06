@@ -10,6 +10,7 @@ const bcrypt = require('bcrypt');
 const { google } = require('googleapis');
 
 var mysql = require('mysql2');
+const { log } = require("console");
 
 // Autenticación con Google
 const auth = new google.auth.GoogleAuth({
@@ -70,9 +71,15 @@ async function subirArchivo(filePath, fileName) {
 
 
 
-router.get('/fetch_movie/:nombre', async (req, res) => {
-  const { nombre } = req.params;
-  const urlSearchMovie = `https://api.themoviedb.org/3/search/movie?query=${encodeURIComponent(nombre)}&include_adult=false&language=es-MX&page=1`;
+router.get('/fetch_movie/:param', async (req, res) => {
+  const { param } = req.params;
+  const isNumeric = !isNaN(param); // Verifica si es un ID numérico
+  log(isNumeric);
+  log(param);
+  const baseUrl = 'https://api.themoviedb.org/3';
+  const url = isNumeric
+    ? `${baseUrl}/movie/${param}?language=es-MX` // búsqueda por ID
+    : `${baseUrl}/search/movie?query=${encodeURIComponent(param)}&include_adult=false&language=es-MX&page=1`;
 
   const options = {
     method: 'GET',
@@ -82,16 +89,35 @@ router.get('/fetch_movie/:nombre', async (req, res) => {
     }
   };
 
-  try {
-    const response = await fetch(urlSearchMovie, options);
-    const responseSearch = await response.json();
+  log(url)
 
-    if (!responseSearch.results || responseSearch.results.length === 0) {
+  try {
+    const response = await fetch(url, options);
+    const data = await response.json();
+
+    if (isNumeric) {
+      // Si se buscó por ID
+      if (!data || data.success === false) {
+        return res.json({ movies: [] });
+      }
+
+      const movie = {
+        id: data.id,
+        title: data.title,
+        overview: data.overview,
+        poster_path: data.poster_path,
+        vote_average: data.vote_average
+      };
+
+      return res.json({ movies: [movie] });
+    }
+
+    // Si se buscó por nombre
+    if (!data.results || data.results.length === 0) {
       return res.json({ movies: [] });
     }
 
-    // 🔥 Filtra las que tengan overview y poster válidos
-    const movies = responseSearch.results
+    const movies = data.results
       .filter(m => 
         m.overview && m.overview.trim().length > 0 &&
         m.poster_path && m.poster_path.trim().length > 0
@@ -103,13 +129,14 @@ router.get('/fetch_movie/:nombre', async (req, res) => {
         poster_path: m.poster_path,
         vote_average: m.vote_average
       }));
-
+    
     res.json({ movies });
   } catch (error) {
-    console.error('Error al buscar películas:', error);
-    res.status(500).json({ error: 'Error al buscar películas' });
+    console.error('Error al buscar película:', error);
+    res.status(500).json({ error: 'Error al buscar película' });
   }
 });
+
 
 
 
@@ -192,121 +219,52 @@ router.get(`/get_movies/:page`, async (req, res) => {
 
 })
 
-router.get(`/aniadeLista/:pelicula/:usuario/:idp`, async(req, res) =>{
+router.get(`/aniadeLista/:pelicula/:usuario`, async(req, res) =>{
     const pelicula = req.params.pelicula;
     const usuario = req.params.usuario;
-    const idp = req.params.idp; // ID de la película, si se proporciona
     let peliculaExiste = false;
+    let idUser = '';
     
-    try {
-        // agregar pelicula a la base de datos si es que no existe en peliculas
-        const checkMovieQuery = 'SELECT * FROM pelicula WHERE id = ?';
-        con.query(checkMovieQuery, [idp], (err, results) => {
-            if (err) {
-                console.error('Error al verificar película existente:', err);
-                return res.status(500).json({ error: 'Error interno del servidor.' });
-            }
-            if (results.length === 0) {
-                // Si la película no existe, insertarla llamando al api de TMDB, por id
-                const urlSearchMovie = `https://api.themoviedb.org/3/movie/${idp}?language=es-MX`;
-                const options = {
-                    method: 'GET',
-                    headers: {
-                        accept: 'application/json',
-                        Authorization: API_KEY
-                    }
-                };
-                fetch(urlSearchMovie, options)
-                .then(response => response.json())
-                .then(data => {
-                    if (data.results && data.results.length > 0) {
-                        const movieData = data.results[0];
-                        const insertMovieQuery = 'INSERT INTO pelicula (ID,Nombre, Genero, Año, Duracion, Imagen, Descripcion, Calificacion) VALUES (?, ?, ?, ?, ?, ?, ?)';
-                        con.query(insertMovieQuery, [
-                            idp,
-                            movieData.title,
-                            movieData.genre_ids.join(', '), // Asumiendo que tienes un campo para géneros
-                            new Date(movieData.release_date).getFullYear(),
-                            movieData.runtime || 0, // Si no hay duración, poner 0
-                            movieData.poster_path ? `https://image.tmdb.org/t/p/w500${movieData.poster_path}` : null,
-                            movieData.overview || '',
-                            movieData.vote_average ? movieData.vote_average.toString() : 'N/A'
-                        ], (err2) => {
-                            if (err2) {
-                                console.error('Error al insertar película:', err2);
-                                return res.status(500).json({ error: 'Error interno del servidor.' });
-                            }
-                            console.log('Película añadida a la base de datos');
-                        });
-                    } else {
-                        console.log('No se encontraron resultados para la película');
-                        return res.status(404).json({ error: 'Película no encontrada' });
-                    }
-                })
-            }
-               
-        });
-        // Buscar ID de usuario
-        const idQuery = 'SELECT id FROM Usuario WHERE nombre = ?';
-        
-        con.query(idQuery, [usuario], (err, results) => {
-            if (err) {
-                console.error('Error al buscar ID de usuario:', err);
-                return res.status(500).json({ error: 'Error interno del servidor.' });
-            }
-
-            if (results.length === 0) {
-                console.log('Usuario no encontrado');
-                return res.status(404).json({ error: 'Usuario no encontrado' });
-            }
-
-            const idUser = results[0].id;
+    const idUserQuery = 'SELECT id FROM Usuario WHERE nombre = ?';
+    con.query(idUserQuery, [usuario], (err, results) => {
+        if (results) {
+            idUser = results[0].id;
             console.log('ID de usuario encontrado:', idUser);
-            // Ahora buscar ID de película
+        }
+        if (err) {
+            console.error('Error al buscar ID de usuario:', err);
+            return res.status(500).json({ error: 'Error interno del servidor.' });
+        }});
 
-            const movieQuery = 'SELECT id FROM pelicula WHERE nombre = ?';
-            con.query(movieQuery, [pelicula], (err2, results2) => {
-                if (err2) {
-                    console.error('Error al buscar ID de película:', err2);
-                    return res.status(500).json({ error: 'Error interno del servidor.' });
-                }
-                if (results2.length === 0) {
-                    console.log('Película no encontrada');
-                    return res.status(404).json({ error: 'Película no encontrada' });
-                }
-                const idMovie = results2[0].id;
-                console.log('ID de película encontrado:', idMovie);
-                // Verificar si ya existe en la lista de favoritos
-                const checkQuery = 'SELECT * FROM favorito WHERE ID_usuario = ? AND ID_pelicula = ?';
-                con.query(checkQuery, [idUser, idMovie], (err3, results3) => {
-                    if (err3) {
-                        console.error('Error al verificar favorito existente:', err3);
+    try {
+        // Verificar si ya existe en la lista de favoritos
+        const checkQuery = 'SELECT * FROM favorito WHERE ID_usuario = ? AND ID_pelicula = ?';
+        con.query(checkQuery, [usuario, pelicula], (err3, results3) => {
+            if (err3) {
+                console.error('Error al verificar favorito existente:', err3);
+                return res.status(500).json({ error: 'Error interno del servidor.' });
+            }
+            if (results3.length > 0) {
+                console.log('La película ya está en la lista de favoritos');
+                peliculaExiste = true;
+            }
+            // Si no existe, insertar en la lista de favoritos
+            if (!peliculaExiste) {
+                const insertQuery = 'INSERT INTO favorito (ID_usuario, ID_pelicula, ID_preferencia, Fecha) VALUES (?, ?, ?, ?)';
+                // numero aleatorio entre 1 y 5
+                const num = Math.floor(Math.random() * 5) + 1; // Genera un número entre 1 y 5
+                con.query(insertQuery, [idUser, pelicula, num, new Date()], (err4) => {
+                    if (err4) {
+                        console.error('Error al insertar en la lista de favoritos:', err4);
                         return res.status(500).json({ error: 'Error interno del servidor.' });
                     }
-                    if (results3.length > 0) {
-                        console.log('La película ya está en la lista de favoritos');
-                        peliculaExiste = true;
-                    }
-                    // Si no existe, insertar en la lista de favoritos
-                    if (!peliculaExiste) {
-                        const insertQuery = 'INSERT INTO favorito (ID_usuario, ID_pelicula, ID_preferencia, Fecha) VALUES (?, ?, ?, ?)';
-                        // numero aleatorio entre 1 y 5
-                        const num = Math.floor(Math.random() * 5) + 1; // Genera un número entre 1 y 5
-                        con.query(insertQuery, [idUser, idMovie, num, new Date()], (err4) => {
-                            if (err4) {
-                                console.error('Error al insertar en la lista de favoritos:', err4);
-                                return res.status(500).json({ error: 'Error interno del servidor.' });
-                            }
-                            console.log('Película añadida a la lista de favoritos');
-                            res.json({ success: true, message: 'Película añadida a la lista de favoritos' });
-                        });
-                    } else {
-                        // Si la película ya existe, enviar respuesta
-                        res.json({ success: false, message: 'La película ya está en la lista de favoritos' });
-                    }
+                    console.log('Película añadida a la lista de favoritos');
+                    res.json({ success: true, message: 'Película añadida a la lista de favoritos' });
                 });
-            });
-        });
+            } else {
+                // Si la película ya existe, enviar respuesta
+                res.json({ success: false, message: 'La película ya está en la lista de favoritos' });
+            }});
     } catch (error) {
         console.error('Error general:', error);
         res.status(500).json({ error: 'Error interno del servidor.' });
@@ -336,11 +294,7 @@ router.get(`/leerLista/:usuario`, async (req, res) => {
             console.log('ID de usuario encontrado:', idUser);
 
             // Ahora buscar las películas favoritas (dentro del callback)
-            const query = `SELECT P.Nombre
-                FROM favorito F 
-                JOIN pelicula P ON F.ID_pelicula = P.ID 
-                JOIN usuario U ON F.ID_usuario = U.ID
-                WHERE U.ID = ?`;
+            const query = `SELECT ID_pelicula FROM favorito where ID_usuario = 501;`;
 
             con.query(query, [idUser], (err, results) => {
                 if (err) {
@@ -350,7 +304,7 @@ router.get(`/leerLista/:usuario`, async (req, res) => {
 
                 if (results.length > 0) {
                     console.log('Películas favoritas encontradas:', results);
-                    const peliculas = results.map(row => row.Nombre);
+                    const peliculas = results.map(row => row.ID_pelicula);
                     res.json(peliculas);
                 } else {
                     console.log('No se encontraron películas favoritas para el usuario.');
@@ -366,11 +320,9 @@ router.get(`/leerLista/:usuario`, async (req, res) => {
 });
 
 
-router.get('/guardaReview/:usuario/:pelicula/:calificacion/:texto', (req, res) => {
-    const usuario = req.params.usuario;
-    const pelicula = req.params.pelicula;
-    const calificacion = req.params.calificacion;
-    const texto = req.params.texto;
+router.post('/guardaReview', (req, res) => {
+    log('Registrar review' + req.body);
+    const { usuario, pelicula, texto, calificacion } = req.body;
     idUser = '';
     idMovie = '';
     
@@ -388,23 +340,10 @@ router.get('/guardaReview/:usuario/:pelicula/:calificacion/:texto', (req, res) =
         idUser = results[0].id;
     });
 
-    // Verificar si la película existe
-    const movieQuery = 'SELECT id FROM Pelicula WHERE nombre = ?';
-    con.query(movieQuery, [pelicula], (err2, results2) => {
-        if (err2) {
-            console.error('Error al verificar película:', err2);
-            return res.status(500).send(false);
-        }
-        if (results2.length === 0) {
-            console.log('Película no encontrada');
-            return res.status(404).send(false);
-        }
-        idMovie = results2[0].id;
-    });
 
     // Verificar si ya existe una review del mismo usuario para la misma película
-    const checkQuery = 'SELECT * FROM Reseña WHERE ID_usuario = ? AND ID_pelicula = ?';
-    con.query(checkQuery, [idUser, idMovie], (err, results) => {
+    const checkQuery = 'SELECT * FROM review WHERE ID_usuario = ? AND ID_pelicula = ?';
+    con.query(checkQuery, [idUser, pelicula], (err, results) => {
         if (err) {
             console.error('Error al verificar review existente:', err);
             return res.status(500).send(false);
@@ -416,8 +355,8 @@ router.get('/guardaReview/:usuario/:pelicula/:calificacion/:texto', (req, res) =
         }
 
         // Insertar la nueva review
-        const insertQuery = 'INSERT INTO Reseña (ID_usuario, ID_pelicula, contenido, calificacion) VALUES (?, ?, ?, ?)';
-        con.query(insertQuery, [idUser, idMovie, texto, calificacion], (err2) => {
+        const insertQuery = 'INSERT INTO review (ID_usuario, ID_pelicula, contenido, calificacion) VALUES (?, ?, ?, ?)';
+        con.query(insertQuery, [idUser, pelicula, texto, calificacion], (err2) => {
             if (err2) {
                 console.error('Error al insertar review:', err2);
                 return res.status(500).send(false);
@@ -430,44 +369,32 @@ router.get('/guardaReview/:usuario/:pelicula/:calificacion/:texto', (req, res) =
 });
 
 router.get('/leerReviews/:pelicula', (req, res) => {
+    log('Obtener reviews de la pelicula: ' + req.params.pelicula);
     const pelicula = req.params.pelicula;
+    
 
-    // Verificar si la película existe
-    const movieQuery = 'SELECT id FROM Pelicula WHERE nombre = ?';
-    con.query(movieQuery, [pelicula], (err2, results2) => {
-        if (err2) {
-            console.error('Error al verificar película:', err2);
-            return res.status(500).send(false);
+    const query = `
+        SELECT u.Nombre AS usuario, r.Contenido AS texto, r.Calificacion AS calificacion
+        FROM Usuario u
+        INNER JOIN review r ON u.ID = r.ID_usuario
+        WHERE r.ID_pelicula = ?
+    `;
+
+    con.query(query, [pelicula], (err, results) => {
+        if (err) {
+            console.error('Error al obtener las reseñas:', err);
+            return res.status(500).send('Error interno del servidor.');
         }
 
-        if (results2.length === 0) {
-            console.log('Película no encontrada');
-            return res.status(404).send(false);
-        }
+        res.json(results);
 
-        const idMovie = results2[0].id;
-
-        const query = `
-            SELECT u.Nombre AS usuario, r.Contenido AS texto, r.Calificacion AS calificacion
-            FROM Usuario u
-            INNER JOIN Reseña r ON u.ID = r.ID_usuario
-            WHERE r.ID_pelicula = ?
-        `;
-
-        con.query(query, [idMovie], (err, results) => {
-            if (err) {
-                console.error('Error al obtener las reseñas:', err);
-                return res.status(500).send('Error interno del servidor.');
-            }
-
-            res.json(results);
-        });
+        log('Reseñas obtenidas:', results);
     });
 });
 
-router.get('/login/:user/:pass', (req, res) => {
-    const user = req.params.user;
-    const pass = req.params.pass;
+router.post('/login', (req, res) => {
+    const user = req.body.user;
+    const pass = req.body.pass;
 
     // Consulta para verificar si existe un usuario con esa contraseña
     const query = 'SELECT * FROM Usuario WHERE nombre = ? AND contraseña = ?';
@@ -487,10 +414,11 @@ router.get('/login/:user/:pass', (req, res) => {
     });
 });
 
-router.get(`/registrarUsuario/:user/:pass`, async (req, res) =>{
+router.post(`/registrarUsuario`, async (req, res) =>{
     console.log('entro a funcion');
-    const user = req.params.user;
-    const pass = req.params.pass;
+    const user = req.body.user;
+    const pass = req.body.pass;
+    log('Registrar usuario: ' + user + pass);
 
     // Verificar si el usuario ya existe
     con.query('SELECT * FROM Usuario WHERE nombre = ?', [user], async (err, results) => {
