@@ -33,10 +33,10 @@ app.listen(port, () => {
 }) 
 
 var con = mysql.createConnection({
-  host: "peliconnect.ddns.net",
-  user: "wndarchitect",
-  password: "Wndall.?53",
-  database: "peliconnectdb"
+  host: "localhost",
+  port: 3306,
+  user: "root",
+  database: "peliconnect"
 });
 
 con.connect(function(err) {
@@ -70,67 +70,106 @@ async function subirArchivo(filePath, fileName) {
 
 
 
-router.get(`/fetch_movie/:nombre`, async (req,res) =>{
-    const { nombre } = req.params;
-    const urlSearchMovie = `https://api.themoviedb.org/3/search/movie?query=${nombre}&include_adult=false&language=en-US&page=1`;
-    const options = {
+router.get('/fetch_movie/:nombre', async (req, res) => {
+  const { nombre } = req.params;
+  const urlSearchMovie = `https://api.themoviedb.org/3/search/movie?query=${encodeURIComponent(nombre)}&include_adult=false&language=es-MX&page=1`;
+
+  const options = {
     method: 'GET',
     headers: {
-        accept: 'application/json',
-        Authorization: API_KEY
+      accept: 'application/json',
+      Authorization: API_KEY
     }
-    };
+  };
 
-    const responseSearch = await fetch(urlSearchMovie, options)
-        .then(res => res.json())
-        .catch(e => {
-        console.log(e);
-    })
+  try {
+    const response = await fetch(urlSearchMovie, options);
+    const responseSearch = await response.json();
 
-    console.log("RESPONSE: ", responseSearch);
+    if (!responseSearch.results || responseSearch.results.length === 0) {
+      return res.json({ movies: [] });
+    }
 
-    res.json({
-        title: responseSearch.results[0].title,
-        overview: responseSearch.results[0].overview,
-        poster_path: responseSearch.results[0].poster_path,
-        vote_average: responseSearch.results[0].vote_average
-    });
+    // 🔥 Filtra las que tengan overview y poster válidos
+    const movies = responseSearch.results
+      .filter(m => 
+        m.overview && m.overview.trim().length > 0 &&
+        m.poster_path && m.poster_path.trim().length > 0
+      )
+      .map(m => ({
+        id: m.id,
+        title: m.title,
+        overview: m.overview,
+        poster_path: m.poster_path,
+        vote_average: m.vote_average
+      }));
 
-})
+    res.json({ movies });
+  } catch (error) {
+    console.error('Error al buscar películas:', error);
+    res.status(500).json({ error: 'Error al buscar películas' });
+  }
+});
 
-router.get(`/get_details/:id` , async (req,res) =>{
-    const { id } = req.params;
-    const urlSearchMovie = `https://api.themoviedb.org/3/movie/${id}?language=en-US`;
-    const options = {
+
+
+router.get('/get_details/:id', async (req, res) => {
+  const { id } = req.params;
+
+  const movieDetailsUrl = `https://api.themoviedb.org/3/movie/${id}?language=es-MX`;
+  const movieVideosUrl = `https://api.themoviedb.org/3/movie/${id}/videos?language=es-MX`;
+
+  const options = {
     method: 'GET',
     headers: {
-        accept: 'application/json',
-        Authorization: API_KEY
+      accept: 'application/json',
+      Authorization: API_KEY
     }
-    };
+  };
 
-    const responseDetails = await fetch(urlSearchMovie, options)
-    .then(res => res.json())
-    .catch(e => {
-      console.log(e);
-  })
+  try {
+    // --- Obtener detalles de la película ---
+    const responseDetails = await fetch(movieDetailsUrl, options);
+    const details = await responseDetails.json();
 
-    console.log("RESPONSE: ", responseDetails);
+    // --- Obtener videos (para el tráiler) ---
+    const responseVideos = await fetch(movieVideosUrl, options);
+    const videos = await responseVideos.json();
 
+    // Buscar el tráiler oficial de YouTube
+    const trailer = videos.results?.find(
+      (v) => v.type === 'Trailer' && v.site === 'YouTube'
+    );
+
+    // --- Construir respuesta final ---
     res.json({
-        title: responseDetails.title,
-        original_title: responseDetails.original_title,
-        release_date: responseDetails.release_date,
-        runtime: responseDetails.runtime,
-        overview: responseDetails.overview,
-        poster_path: responseDetails.poster_path,
-        vote_average: responseDetails.vote_average
+      id: details.id,
+      title: details.title,
+      original_title: details.original_title,
+      overview: details.overview,
+      release_date: details.release_date,
+      runtime: details.runtime,
+      vote_average: details.vote_average,
+      poster_path: details.poster_path,
+      backdrop_path: details.backdrop_path,
+      genres: details.genres?.map(g => g.name) || [],
+      trailer_key: trailer ? trailer.key : null, // para generar el embed de YouTube
+      homepage: details.homepage,
+      tagline: details.tagline,
+      status: details.status,
+      production_companies: details.production_companies?.map(c => c.name) || []
     });
-})
+
+  } catch (e) {
+    console.error("Error al obtener detalles:", e);
+    res.status(500).json({ error: 'Error al obtener los detalles de la película' });
+  }
+});
+
 
 router.get(`/get_movies/:page`, async (req, res) => {
     const page = req.params.page || 1; // Default to page 1 if not provided
-    const url = `https://api.themoviedb.org/3/discover/movie?include_adult=false&include_video=false&language=en-US&page=${page}&sort_by=popularity.desc`;
+    const url = `https://api.themoviedb.org/3/discover/movie?include_adult=false&include_video=false&language=es-MX&page=${page}&sort_by=popularity.desc`;
     const options = {
         method: 'GET',
         headers: {
@@ -169,7 +208,7 @@ router.get(`/aniadeLista/:pelicula/:usuario/:idp`, async(req, res) =>{
             }
             if (results.length === 0) {
                 // Si la película no existe, insertarla llamando al api de TMDB, por id
-                const urlSearchMovie = `https://api.themoviedb.org/3/movie/${idp}?language=en-US`;
+                const urlSearchMovie = `https://api.themoviedb.org/3/movie/${idp}?language=es-MX`;
                 const options = {
                     method: 'GET',
                     headers: {
