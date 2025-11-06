@@ -4,7 +4,7 @@
     $contrasena = $_POST['pass'];
 
     // Construir la URL con los parámetros
-    $url = "http://peliconnect.ddns.net:3000/registrarUsuario/$usuario/$contrasena";
+    $url = "http://localhost:3000/registrarUsuario/$usuario/$contrasena";
 
     // Realizar la solicitud GET
     $response = file_get_contents($url);

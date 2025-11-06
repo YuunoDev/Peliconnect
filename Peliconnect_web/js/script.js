@@ -1,5 +1,5 @@
 const IMG_URL = 'https://image.tmdb.org/t/p/w500';
-const NODE_URL = 'http://peliconnect.ddns.net:3000';
+const NODE_URL = 'http://localhost:3000';
 
 const main = document.getElementById('main');
 const carrusel = document.getElementById('movieCarousel');
