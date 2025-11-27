@@ -14,6 +14,6 @@ const con = mysql.createConnection(dbConfig);
 
 // Exporta ambos: la configuración y la conexión tradicional
 module.exports = {
-    config: dbConfig,  // Para usar con mysql2/promise
+    config: dbConfig,  // Para usar con mysql2/promis
     connection: con    // Para usar con mysql2 tradicional
 };

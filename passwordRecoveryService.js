@@ -238,6 +238,140 @@ async function sendVerificationEmail(email, code, userName) {
 
 }
 
+async function sendloginEmail(email, userName, loginDate, loginTime, deviceInfo, location) {
+  const mailOptions = {
+    from: 'adrianalonso.a4@gmail.com',
+    to: email,
+    subject: 'Validar email',
+    html: `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin: 0; padding: 0; background-color: #0a0a0a; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #0a0a0a;">
+    <tr>
+      <td style="padding: 40px 20px;">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="max-width: 600px; margin: 0 auto; background-color: #1a1a1a; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 20px rgba(220, 38, 38, 0.2);">
+          
+          <!-- Header con logo -->
+          <tr>
+            <td style="background: linear-gradient(135deg, #1a1a1a 0%, #2d0a0a 100%); padding: 40px 40px 30px; text-align: center; border-bottom: 3px solid #dc2626;">
+              <h1 style="margin: 0; color: #dc2626; font-size: 36px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;">
+                PELICONNECT
+              </h1>
+            </td>
+          </tr>
+
+          <!-- Contenido principal -->
+          <tr>
+            <td style="padding: 40px 40px 30px; background-color: #1a1a1a;">
+              <h2 style="color: #ffffff; margin: 0 0 20px; font-size: 24px; font-weight: 600;">
+                ⚠️ Actividad de inicio de sesión inusual
+              </h2>
+              
+              <p style="color: #d1d5db; font-size: 16px; line-height: 1.6; margin: 0 0 15px;">
+                Hola <strong style="color: #ffffff;">${userName}</strong>,
+              </p>
+              
+              <p style="color: #d1d5db; font-size: 16px; line-height: 1.6; margin: 0 0 25px;">
+                Hemos detectado un inicio de sesión en tu cuenta desde un dispositivo o ubicación que no reconocemos.
+              </p>
+
+              <!-- Detalles del inicio de sesión -->
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                <tr>
+                  <td style="padding: 20px; background: linear-gradient(135deg, #2d0a0a 0%, #1a1a1a 100%); border-radius: 8px; border-left: 4px solid #dc2626;">
+                    <div style="color: #ffffff; font-size: 16px; line-height: 1.8;">
+                      <strong>Detalles del inicio de sesión:</strong><br>
+                      • Fecha: ${loginDate}<br>
+                      • Hora: ${loginTime}<br>
+                      • Dispositivo: ${deviceInfo}<br>
+                      • Ubicación aproximada: ${location}
+                    </div>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Instrucciones -->
+              <p style="color: #d1d5db; font-size: 16px; line-height: 1.6; margin: 25px 0 15px;">
+                <strong>Si no fuiste tú:</strong>
+              </p>
+              
+              <p style="color: #d1d5db; font-size: 16px; line-height: 1.6; margin: 0 0 25px;">
+                Te recomendamos cambiar tu contraseña inmediatamente para proteger tu cuenta.
+              </p>
+
+              <!-- Botón para cambiar contraseña -->
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                <tr>
+                  <td align="center" style="padding: 15px 0 25px;">
+                    <a href="${resetPasswordLink}" style="display: inline-block; padding: 12px 30px; background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%); color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 15px rgba(220, 38, 38, 0.4);">
+                      Cambiar contraseña
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="color: #d1d5db; font-size: 16px; line-height: 1.6; margin: 0 0 15px;">
+                <strong>Si fuiste tú:</strong>
+              </p>
+              
+              <p style="color: #d1d5db; font-size: 16px; line-height: 1.6; margin: 0 0 25px;">
+                Puedes ignorar este mensaje. Agradecemos que mantengas tus datos de inicio de sesión seguros.
+              </p>
+
+              <!-- Info de seguridad -->
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                <tr>
+                  <td style="padding: 20px; background-color: #2d0a0a; border-left: 4px solid #dc2626; border-radius: 6px;">
+                    <p style="margin: 0; color: #fca5a5; font-size: 14px; line-height: 1.5;">
+                      🔒 <strong>Consejo de seguridad:</strong> Utiliza contraseñas únicas y activa la autenticación de dos factores para mayor protección.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding: 30px 40px; background-color: #0a0a0a; border-top: 1px solid #2d2d2d;">
+              <p style="margin: 0 0 10px; color: #6b7280; font-size: 13px; line-height: 1.5; text-align: center;">
+                Este es un mensaje automático de seguridad, por favor no respondas a este correo.
+              </p>
+              <p style="margin: 0; color: #4b5563; font-size: 12px; text-align: center;">
+                © ${new Date().getFullYear()} PeliConnect. Todos los derechos reservados.
+              </p>
+              <div style="text-align: center; margin-top: 15px;">
+                <a href="#" style="color: #dc2626; text-decoration: none; font-size: 12px; margin: 0 10px;">Política de Privacidad</a>
+                <span style="color: #4b5563;">|</span>
+                <a href="#" style="color: #dc2626; text-decoration: none; font-size: 12px; margin: 0 10px;">Términos de Uso</a>
+              </div>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    return { success: true, message: 'Email enviado exitosamente' };
+  } catch (error) {
+    console.error('Error al enviar email:', error);
+    return { success: false, message: 'Error al enviar el email' };
+  }
+
+}
+
+
+
 module.exports = {
   generateRecoveryToken,
   generateRecoveryCode,

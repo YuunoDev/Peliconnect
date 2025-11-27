@@ -2,6 +2,7 @@ var mysql = require("mysql2");
 const express = require("express"); //importar express 
 const bodyParser = require("body-parser");
 const reco = require("./reco")
+const towfa = require("./2fa")
 const cors = require("cors");
 const fetch = require('node-fetch');
 
@@ -34,7 +35,8 @@ app.use(bodyParser.json());
 app.listen(port, () => {
     console.log(`hola servidor ejecucion en http://localhost:${port}`);
 })
-app.use("/", reco)
+app.use("/", reco);
+app.use("/2fa", towfa);
 
 con.connect((err) => {
     if (err) {
@@ -153,9 +155,8 @@ router.get('/get_users', async (req, res) => {
 
 router.post('/get_user', async (req, res) => {
     const { id } = req.body;
-
     con.connect();
-
+    console.log(id)
     console.log('Obteniendo lista de usuarios...');
     const query = 'SELECT id, nombre, Correo, two_fa FROM usuario WHERE id = ?'
     con.query(query,[id], (err, results) => {
@@ -168,7 +169,6 @@ router.post('/get_user', async (req, res) => {
     }
     );
 });
-
 
 router.get('/get_details/:id', async (req, res) => {
     const { id } = req.params;
@@ -242,7 +242,7 @@ router.get(`/get_movies/:page`, async (req, res) => {
             console.log(e);
         })
 
-    console.log("RESPONSE: ", responseMovies);
+    //console.log("RESPONSE: ", responseMovies);
 
     res.json({
         movies: responseMovies.results
@@ -479,57 +479,191 @@ router.get('/editarReview/:id/:pelicula/:calificacion/:texto', (req, res) => {
     });
 });
 
+// Leer reviews
+router.post('/userReviews', (req, res) => {
+    const { id } = req.body;
+
+
+    const query = `
+        SELECT ID_pelicula, Contenido, score FROM peliconnectdb.review where ID_usuario = ?
+    `;
+
+    con.query(query, [id], (err, results) => {
+        if (err) {
+            console.error('Error al obtener las reseñas:', err);
+            return res.status(500).send('Error interno del servidor.');
+        }
+
+        res.json(results);
+
+        log('Reseñas obtenidas:', results);
+    });
+});
+
+
 // Iniciar sesión
+const crypto = require('crypto');
+
 router.post('/login', (req, res) => {
     const user = req.body.user;
     const pass = req.body.pass;
+    console.log(user)
+    const token2fa = req.body.token2fa;
+    const deviceToken = req.body.deviceToken; // Token del dispositivo confiable
 
     if (!user || !pass) {
-        return res.status(400).send('Faltan credenciales');
+        return res.status(400).json({ error: 'Faltan credenciales' });
     }
 
     const query = 'SELECT * FROM Usuario WHERE nombre = ?';
     con.query(query, [user], async (err, results) => {
         if (err) {
             console.error('Error al verificar credenciales:', err);
-            return res.status(500).send('Error interno del servidor.');
+            return res.status(500).json({ error: 'Error interno del servidor' });
         }
 
         if (results.length === 0) {
-            console.log('Usuario no encontrado');
-            return res.send(false);
+            return res.json({ success: false, error: 'Usuario no encontrado' });
         }
 
         const userData = results[0];
 
-        // log('Datos de usuario encontrados:', userData);
-
-        // console.log('Contraseña ingresada:', pass);
-        // console.log('Hash almacenado:', userData.password);
-
         if (!userData.password) {
-            console.error('El hash de contraseña no está almacenado correctamente');
-            return res.status(500).send('Error en datos de usuario');
+            return res.status(500).json({ error: 'Error en datos de usuario' });
         }
 
         try {
             const match = await bcrypt.compare(pass, userData.password);
 
-            if (match) {
-                console.log('Sesión iniciada correctamente');
-                respuesta = {
-                    id: userData.ID,
-                    admin: userData.Admin
-                }
-                res.send(respuesta);
-            } else {
-                console.log('Contraseña incorrecta');
-                res.send(false);
+            if (!match) {
+                return res.json({ success: false, error: 'Contraseña incorrecta' });
             }
+
+            // ✅ Usuario y contraseña correctos
+            
+            // Si el usuario NO tiene 2FA activado, login directo
+            if (!userData.two_fa) {
+                return res.json({
+                    success: true,
+                    id: userData.ID,
+                    admin: userData.Admin,
+                    //token: generateJWT(userData.ID) // Tu función JWT
+                });
+            }
+
+            // ✅ Usuario tiene 2FA activado
+            
+            // Verificar si el dispositivo ya es confiable
+            if (deviceToken) {
+                const checkDevice = 'SELECT * FROM trusted_devices WHERE user_id = ? AND device_token = ? AND expires_at > NOW()';
+                con.query(checkDevice, [userData.ID, deviceToken], (err, devices) => {
+                    if (err) {
+                        console.error('Error al verificar dispositivo:', err);
+                        return res.status(500).json({ error: 'Error interno' });
+                    }
+
+                    if (devices.length > 0) {
+                        // Dispositivo confiable válido
+                        return res.json({
+                            success: true,
+                            id: userData.ID,
+                            admin: userData.Admin,
+                           // token: generateJWT(userData.ID),
+                            deviceToken: deviceToken // Devolver el mismo token
+                        });
+                    } else {
+                        // Device token inválido o expirado, pedir 2FA
+                        return res.json({ two_fa: true });
+                    }
+                });
+            } else {
+                // No hay device token, pedir 2FA
+                return res.json({ two_fa: true });
+            }
+
         } catch (error) {
             console.error('Error al comparar contraseñas:', error);
-            res.status(500).send('Error interno al comparar contraseñas');
+            res.status(500).json({ error: 'Error interno al comparar contraseñas' });
         }
+    });
+});
+
+// ✅ Nuevo endpoint para verificar el código 2FA
+router.post('/verify-2fa', (req, res) => {
+    const user = req.body.user;
+    const pass = req.body.pass;
+    const token2fa = req.body.token2fa;
+
+    if (!user || !pass || !token2fa) {
+        return res.status(400).json({ error: 'Faltan datos' });
+    }
+
+    const query = 'SELECT * FROM Usuario WHERE nombre = ?';
+    con.query(query, [user], async (err, results) => {
+        if (err || results.length === 0) {
+            return res.status(500).json({ error: 'Error al verificar usuario' });
+        }
+
+        const userData = results[0];
+
+        try {
+            const match = await bcrypt.compare(pass, userData.password);
+            if (!match) {
+                return res.json({ success: false, error: 'Credenciales incorrectas' });
+            }
+
+            // Verificar el código 2FA con speakeasy (o tu librería)
+            const speakeasy = require('speakeasy');
+            const verified = speakeasy.totp.verify({
+                secret: userData.twofa_secret,
+                encoding: 'base32',
+                token: token2fa,
+                window: 1
+            });
+
+            if (!verified) {
+                return res.json({ success: false, error: 'Código 2FA incorrecto' });
+            }
+
+            // ✅ 2FA correcto, generar device token
+            const newDeviceToken = crypto.randomBytes(32).toString('hex');
+            const expiresAt = new Date();
+            expiresAt.setDate(expiresAt.getDate() + 30); // 30 días
+
+            const insertDevice = 'INSERT INTO trusted_devices (user_id, device_token, expires_at) VALUES (?, ?, ?)';
+            con.query(insertDevice, [userData.ID, newDeviceToken, expiresAt], (err) => {
+                if (err) {
+                    console.error('Error al guardar dispositivo:', err);
+                    return res.status(500).json({ error: 'Error al guardar dispositivo' });
+                }
+
+                res.json({
+                    success: true,
+                    id: userData.ID,
+                    admin: userData.Admin,
+                    //token: generateJWT(userData.ID),
+                    deviceToken: newDeviceToken
+                });
+            });
+
+        } catch (error) {
+            console.error('Error:', error);
+            res.status(500).json({ error: 'Error interno' });
+        }
+    });
+});
+
+// Función helper para generar JWT (ajusta según tu implementación)
+function generateJWT(userId) {
+    const jwt = require('jsonwebtoken');
+    return jwt.sign({ id: userId }, 'tu_secret_key', { expiresIn: '24h' });
+}
+
+router.get('/trusted-devices/:userId', (req, res) => {
+    const query = 'SELECT id, created_at, expires_at FROM trusted_devices WHERE user_id = ? ORDER BY created_at DESC';
+    con.query(query, [req.params.userId], (err, results) => {
+        if (err) return res.status(500).json({ error: 'Error' });
+        res.json(results);
     });
 });
 
