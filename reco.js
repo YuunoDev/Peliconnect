@@ -6,8 +6,10 @@ const {
   generateRecoveryCode,
   sendRecoveryEmail,
   hashPassword,
-  sendVerificationEmail
-} = require('./passwordRecoveryService.js');
+  sendVerificationEmail,
+  sendBanEmail,
+  sendloginEmail
+} = require('./EmailService.js');
 const { config: dbConfig } = require('./db'); // Importa solo la config
 const { log } = require('console');
 
@@ -209,7 +211,6 @@ router.post('/reset-password', async (req, res) => {
     if (connection) await connection.end();
   }
 });
-
 
 // Registrar usuario
 router.post(`/registrarUsuario`, async (req, res) => {

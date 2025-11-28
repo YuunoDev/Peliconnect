@@ -7,12 +7,18 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v2
-    - name: Set up Node.js
-      uses: actions/setup-node@v2
-      with:
-        node-version: '14'
-    - name: Install dependencies
-      run: npm install
-    - name: Run tests
-      run: npm test
+      - uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+
+      - name: Install dependencies clean
+        run: npm ci
+
+      - name: Rebuild bcrypt for Linux
+        run: npm rebuild bcrypt --build-from-source
+
+      - name: Run tests
+        run: npm test

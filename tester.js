@@ -2,13 +2,12 @@ const request = require('supertest');
 const express = require('express');
 const mysql = require('mysql2/promise');
 const bcrypt = require('bcrypt');
-const authRoutes = require('../reco.js'); // ajusta la ruta real
-
+const router = express.Router(); // Ajusta la ruta
 
 // Mock de las dependencias
 jest.mock('mysql2/promise');
 jest.mock('bcrypt');
-jest.mock('../EmailService.js', () => ({
+jest.mock('./EmailService.js', () => ({
   generateRecoveryCode: jest.fn(() => '123456'),
   sendRecoveryEmail: jest.fn(() => Promise.resolve({ success: true })),
   hashPassword: jest.fn((password) => Promise.resolve(`hashed_${password}`)),
@@ -17,11 +16,9 @@ jest.mock('../EmailService.js', () => ({
   sendloginEmail: jest.fn()
 }));
 
-
 const app = express();
 app.use(express.json());
-app.use('/', authRoutes);
-
+app.use('/', router);
 
 describe('Password Reset Flow', () => {
   let mockConnection;
@@ -76,7 +73,7 @@ describe('Password Reset Flow', () => {
     });
 
     test('debe manejar error al enviar email', async () => {
-      const { sendRecoveryEmail } = require('../EmailService.js');
+      const { sendRecoveryEmail } = require('./EmailService.js');
       sendRecoveryEmail.mockResolvedValueOnce({ success: false });
 
       mockConnection.execute
