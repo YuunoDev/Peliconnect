@@ -25,11 +25,7 @@ router.post('/request-password-reset', async (req, res) => {
 
   let connection;
   try {
-    if (process.env.NODE_ENV === 'test') {
-      console.log('Modo test: DB deshabilitada');
-    } else {
-      connection = await mysql.createConnection(dbConfig);
-    }
+    connection = await mysql.createConnection(dbConfig);
 
     const [rows] = await connection.execute(
       'SELECT id, nombre FROM usuario WHERE Correo = ?',
@@ -84,11 +80,7 @@ router.post('/verify-recovery-code', async (req, res) => {
 
   let connection;
   try {
-    if (process.env.NODE_ENV === 'test') {
-      console.log('Modo test: DB deshabilitada');
-    } else {
-      connection = await mysql.createConnection(dbConfig);
-    }
+    connection = await mysql.createConnection(dbConfig);
 
     const [rows] = await connection.execute(
       `SELECT recovery_code, recovery_code_expires_at, recovery_attempts 
@@ -168,11 +160,7 @@ router.post('/reset-password', async (req, res) => {
 
   let connection;
   try {
-    if (process.env.NODE_ENV === 'test') {
-      console.log('Modo test: DB deshabilitada');
-    } else {
-      connection = await mysql.createConnection(dbConfig);
-    }
+    connection = await mysql.createConnection(dbConfig);
 
     const [rows] = await connection.execute(
       `SELECT reset_token, reset_token_expires_at 
@@ -231,11 +219,7 @@ router.post(`/registrarUsuario`, async (req, res) => {
   const email = req.body.email;
   let connection;
   try {
-    if (process.env.NODE_ENV === 'test') {
-      console.log('Modo test: DB deshabilitada');
-    } else {
-      connection = await mysql.createConnection(dbConfig);
-    }
+    connection = await mysql.createConnection(dbConfig);
 
     const [rows] = await connection.execute(
       'SELECT * FROM Usuario WHERE nombre = ?', [user]
@@ -301,11 +285,7 @@ router.post('/send-verification', async (req, res) => {
   }
 
   try {
-    if (process.env.NODE_ENV === 'test') {
-      console.log('Modo test: DB deshabilitada');
-    } else {
-      connection = await mysql.createConnection(dbConfig);
-    }
+    connection = await mysql.createConnection(dbConfig);
 
     const [rows] = await connection.execute(
       'SELECT id, nombre FROM usuario WHERE Correo = ?',
@@ -350,17 +330,13 @@ router.post('/verify-code', async (req, res) => {
     return res.status(400).json({ error: 'Email y código requeridos' });
   }
   try {
-    if (process.env.NODE_ENV === 'test') {
-      console.log('Modo test: DB deshabilitada');
-    } else {
-      connection = await mysql.createConnection(dbConfig);
-    }
+    connection = await mysql.createConnection(dbConfig);
 
     const [results] = await connection.execute(
       'SELECT verification_code, code_expires_at FROM Usuario WHERE Correo = ?',
       [email])
-
-    if (results === 0) {
+    
+    if (results === 0){
       return res.status(400).json({ error: 'No encontrado' });
     }
 
