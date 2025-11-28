@@ -10,7 +10,10 @@ const dbConfig = {
 };
 
 // Si otros archivos usan la conexión tradicional (mysql2 sin promises)
-const con = mysql.createConnection(dbConfig);
+if (process.env.NODE_ENV !== 'test') {
+  const con = mysql.createConnection(dbConfig);
+}
+
 
 // Exporta ambos: la configuración y la conexión tradicional
 module.exports = {
