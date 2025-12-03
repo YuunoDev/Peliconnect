@@ -216,7 +216,6 @@ router.post('/reset-password', async (req, res) => {
 router.post(`/registrarUsuario`, async (req, res) => {
   const user = req.body.user;
   const pass = req.body.pass;
-  const email = req.body.email;
   let connection;
   try {
     connection = await mysql.createConnection(dbConfig);
@@ -231,24 +230,14 @@ router.post(`/registrarUsuario`, async (req, res) => {
       });
     }
 
-    const [rows2] = await connection.execute(
-      'SELECT * FROM Usuario WHERE Correo = ?', [email]
-    );
-
-    if (rows.length !== 0) {
-      return res.json({
-        message: 'El email ya está registrado'
-      });
-    }
-
     // Usuario y email no existen, registrarlo
     try {
       // encriptar contraseña connection bcrypt
       const hashedPass = await bcrypt.hash(pass, 10);
 
       await connection.execute(
-        'INSERT INTO Usuario (nombre, password, Correo, is_verified) VALUES (?, ?, ?, 0)',
-        [user, hashedPass, email]);
+        'INSERT INTO Usuario (nombre, password, is_verified) VALUES (?, ?,  0)',
+        [user, hashedPass]);
 
 
       console.log('Usuario registrado exitosamente');
@@ -276,9 +265,9 @@ router.post(`/registrarUsuario`, async (req, res) => {
 
 // Ruta para enviar código de verificación
 router.post('/send-verification', async (req, res) => {
-  const { email } = req.body;
+  const { email,username } = req.body;
   let connection;
-  console.log("Entro")
+  
 
   if (!email) {
     return res.status(400).json({ error: 'Email requerido' });
@@ -287,28 +276,27 @@ router.post('/send-verification', async (req, res) => {
   try {
     connection = await mysql.createConnection(dbConfig);
 
-    const [rows] = await connection.execute(
-      'SELECT id, nombre FROM usuario WHERE Correo = ?',
-      [email]
+    const [rows2] = await connection.execute(
+      'SELECT * FROM Usuario WHERE Correo = ?', [email]
     );
 
-    if (rows.length === 0) {
+    if (rows2.length !== 0) {
       return res.json({
-        message: 'Si el Correo existe, recibirás un código de recuperación'
+        message: 'El email ya está registrado'
       });
     }
 
-    const user = rows[0];
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutos
 
     // Guardar código en la base de datos
     await connection.execute(
-      'UPDATE Usuario SET verification_code = ?, code_expires_at = ? WHERE Correo = ?',
-      [code, expiresAt, email]);
+      'UPDATE Usuario SET verification_code = ?, code_expires_at = ? WHERE nombre = ?',
+      [code, expiresAt, username]);
 
     // Enviar email (necesitas configurar nodemailer)
-    const emailResult = await sendVerificationEmail(email, code, user.nombre);
+    const emailResult = await sendVerificationEmail(email, code, username);
+    console.log("Correo enviado")
 
     if (emailResult.success) {
       res.json({ message: 'Código enviado a tu email' });
@@ -324,7 +312,7 @@ router.post('/send-verification', async (req, res) => {
 
 // Ruta para verificar código
 router.post('/verify-code', async (req, res) => {
-  const { email, code } = req.body;
+  const { email, code, username } = req.body;
   let connection;
   if (!email || !code) {
     return res.status(400).json({ error: 'Email y código requeridos' });
@@ -333,8 +321,8 @@ router.post('/verify-code', async (req, res) => {
     connection = await mysql.createConnection(dbConfig);
 
     const [results] = await connection.execute(
-      'SELECT verification_code, code_expires_at FROM Usuario WHERE Correo = ?',
-      [email])
+      'SELECT verification_code, code_expires_at FROM Usuario WHERE nombre = ?',
+      [username])
     
     if (results === 0){
       return res.status(400).json({ error: 'No encontrado' });
@@ -355,8 +343,8 @@ router.post('/verify-code', async (req, res) => {
 
     // Código correcto, marcar como verificado
     const up = await connection.execute(
-      'UPDATE Usuario SET is_verified = 1, verification_code = NULL, code_expires_at = NULL WHERE Correo = ?',
-      [email]);
+      'UPDATE Usuario SET is_verified = 1, verification_code = NULL, code_expires_at = NULL, Correo = ? WHERE nombre = ?',
+      [email, username]);
 
     if (up === 0) {
       return res.status(400).json({ error: 'Error de validación' });
