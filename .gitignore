@@ -1,2 +1,5 @@
 node_modules/*
 !Peliconnect_web/*
+
+db.js
+

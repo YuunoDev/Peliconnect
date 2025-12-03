@@ -1,0 +1,27 @@
+name: Node.js CI
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+
+      - name: Install dependencies clean
+        run: npm ci
+
+      - name: Rebuild bcrypt for Linux
+        run: npm rebuild bcrypt --build-from-source
+
+      - name: Run tests
+        run: npm test
+        env:
+          NODE_ENV: test
+

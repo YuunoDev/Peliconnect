@@ -1,6 +1,8 @@
+var mysql = require("mysql2");
 const express = require("express"); //importar express 
-const bodyParser = require("body-parser"); 
-
+const bodyParser = require("body-parser");
+const reco = require("./reco")
+const towfa = require("./2fa")
 const cors = require("cors");
 const fetch = require('node-fetch');
 
@@ -10,7 +12,7 @@ const bcrypt = require('bcrypt');
 const { google } = require('googleapis');
 
 var mysql = require('mysql2');
-const { log } = require("console");
+const { log, error } = require("console");
 
 // Autenticación con Google
 const auth = new google.auth.GoogleAuth({
@@ -22,27 +24,31 @@ const drive = google.drive({ version: 'v3', auth });
 
 const app = express(); //crear al servidor 
 const router = express.Router();
-const port = process.env.PORT || 3000; 
+const { connection: con } = require('./db'); // importas tu conexión
+const port = process.env.PORT || 3000;
 
 const API_KEY = 'Bearer eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI2MDhkYjEyZTBkNGM2OTU1MzhkMjMwYzI2NzBlMmU5YyIsIm5iZiI6MTczMzk2MzU2Ny4wMDYsInN1YiI6IjY3NWEyZjJlYzdkM2YyZjkzZTEyZTRhYyIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.ckuzPo91b88XnhxtpPGdQCaKjIXs_vtYwy1N9tXqs2k';
 
+const {
+    sendloginEmail,
+    sendBanEmail
+} = require('./EmailService.js');
+
 app.use(cors());
-app.use(bodyParser.urlencoded({ extended:false})); 
-app.use(bodyParser.json()); 
-app.listen(port, () => { 
-    console.log(`hola servidor ejecucion en http://localhost:${port}`); 
-}) 
+app.use(bodyParser.urlencoded({ extended: false }));
+app.use(bodyParser.json());
+app.listen(port, () => {
+    console.log(`hola servidor ejecucion en http://localhost:${port}`);
+})
+app.use("/", reco);
+app.use("/2fa", towfa);
 
-var con = mysql.createConnection({
-  host: "localhost",
-  port: 3306,
-  user: "root",
-  database: "peliconnect"
-});
-
-con.connect(function(err) {
-  if (err) throw err;
-  console.log("Connected!");
+con.connect((err) => {
+    if (err) {
+        console.error("Error al conectar a MySQL:", err);
+        return;
+    }
+    console.log("✅ Conectado a la base de datos MySQL");
 });
 
 async function subirArchivo(filePath, fileName) {
@@ -70,130 +76,212 @@ async function subirArchivo(filePath, fileName) {
 }
 
 
+// Rutas de la API
 
 router.get('/fetch_movie/:param', async (req, res) => {
-  const { param } = req.params;
-  const isNumeric = !isNaN(param); // Verifica si es un ID numérico
-  log(isNumeric);
-  log(param);
-  const baseUrl = 'https://api.themoviedb.org/3';
-  const url = isNumeric
-    ? `${baseUrl}/movie/${param}?language=es-MX` // búsqueda por ID
-    : `${baseUrl}/search/movie?query=${encodeURIComponent(param)}&include_adult=false&language=es-MX&page=1`;
+    const { param } = req.params;
+    const isNumeric = !isNaN(param); // Verifica si es un ID numérico
+    log(isNumeric);
+    log(param);
+    const baseUrl = 'https://api.themoviedb.org/3';
+    const url = isNumeric
+        ? `${baseUrl}/movie/${param}?language=es-MX` // búsqueda por ID
+        : `${baseUrl}/search/movie?query=${encodeURIComponent(param)}&include_adult=false&language=es-MX&page=1`;
 
-  const options = {
-    method: 'GET',
-    headers: {
-      accept: 'application/json',
-      Authorization: API_KEY
+    const options = {
+        method: 'GET',
+        headers: {
+            accept: 'application/json',
+            Authorization: API_KEY
+        }
+    };
+
+    log(url)
+
+    try {
+        const response = await fetch(url, options);
+        const data = await response.json();
+
+        if (isNumeric) {
+            // Si se buscó por ID
+            if (!data || data.success === false) {
+                return res.json({ movies: [] });
+            }
+
+            const movie = {
+                id: data.id,
+                title: data.title,
+                overview: data.overview,
+                poster_path: data.poster_path,
+                vote_average: data.vote_average
+            };
+
+            return res.json({ movies: [movie] });
+        }
+
+        // Si se buscó por nombre
+        if (!data.results || data.results.length === 0) {
+            return res.json({ movies: [] });
+        }
+
+        const movies = data.results
+            .filter(m =>
+                m.overview && m.overview.trim().length > 0 &&
+                m.poster_path && m.poster_path.trim().length > 0
+            )
+            .map(m => ({
+                id: m.id,
+                title: m.title,
+                overview: m.overview,
+                poster_path: m.poster_path,
+                vote_average: m.vote_average
+            }));
+
+        res.json({ movies });
+    } catch (error) {
+        console.error('Error al buscar película:', error);
+        res.status(500).json({ error: 'Error al buscar película' });
     }
-  };
-
-  log(url)
-
-  try {
-    const response = await fetch(url, options);
-    const data = await response.json();
-
-    if (isNumeric) {
-      // Si se buscó por ID
-      if (!data || data.success === false) {
-        return res.json({ movies: [] });
-      }
-
-      const movie = {
-        id: data.id,
-        title: data.title,
-        overview: data.overview,
-        poster_path: data.poster_path,
-        vote_average: data.vote_average
-      };
-
-      return res.json({ movies: [movie] });
-    }
-
-    // Si se buscó por nombre
-    if (!data.results || data.results.length === 0) {
-      return res.json({ movies: [] });
-    }
-
-    const movies = data.results
-      .filter(m => 
-        m.overview && m.overview.trim().length > 0 &&
-        m.poster_path && m.poster_path.trim().length > 0
-      )
-      .map(m => ({
-        id: m.id,
-        title: m.title,
-        overview: m.overview,
-        poster_path: m.poster_path,
-        vote_average: m.vote_average
-      }));
-    
-    res.json({ movies });
-  } catch (error) {
-    console.error('Error al buscar película:', error);
-    res.status(500).json({ error: 'Error al buscar película' });
-  }
 });
 
+router.get('/get_users', async (req, res) => {
+    console.log('Obteniendo lista de usuarios...');
+    const query = 'SELECT id, nombre, Correo, activo activo FROM usuario';
+    con.query(query, (err, results) => {
+        if (err) {
+            console.error('Error al obtener usuarios:', err);
+            return res.status(500).json({ error: 'Error al obtener usuarios' });
+        }
+        res.json(results);
+        //console.log('Usuarios obtenidos:', results);    
+    }
+    );
+});
 
-
+router.post('/get_user', async (req, res) => {
+    const { id } = req.body;
+    con.connect();
+    console.log(id)
+    console.log('Obteniendo lista de usuarios...');
+    const query = 'SELECT id, nombre, Correo, two_fa FROM usuario WHERE id = ?'
+    con.query(query, [id], (err, results) => {
+        if (err) {
+            console.error('Error al obtener usuario:', err);
+            return res.status(500).json({ error: 'Error al obtener usuarios' });
+        }
+        res.json(results);
+        console.log('Usuarios obtenidos:', results);
+    }
+    );
+});
 
 router.get('/get_details/:id', async (req, res) => {
-  const { id } = req.params;
+    const { id } = req.params;
 
-  const movieDetailsUrl = `https://api.themoviedb.org/3/movie/${id}?language=es-MX`;
-  const movieVideosUrl = `https://api.themoviedb.org/3/movie/${id}/videos?language=es-MX`;
+    const movieDetailsUrl = `https://api.themoviedb.org/3/movie/${id}?language=es-MX`;
+    const movieVideosUrl = `https://api.themoviedb.org/3/movie/${id}/videos?language=es-MX`;
 
-  const options = {
-    method: 'GET',
-    headers: {
-      accept: 'application/json',
-      Authorization: API_KEY
+    const options = {
+        method: 'GET',
+        headers: {
+            accept: 'application/json',
+            Authorization: API_KEY
+        }
+    };
+
+    try {
+        // --- Obtener detalles de la película ---
+        const responseDetails = await fetch(movieDetailsUrl, options);
+        const details = await responseDetails.json();
+
+        // --- Obtener videos (para el tráiler) ---
+        const responseVideos = await fetch(movieVideosUrl, options);
+        const videos = await responseVideos.json();
+
+        // Buscar el tráiler oficial de YouTube
+        const trailer = videos.results?.find(
+            (v) => v.type === 'Trailer' && v.site === 'YouTube'
+        );
+
+        // --- Construir respuesta final ---
+        res.json({
+            id: details.id,
+            title: details.title,
+            original_title: details.original_title,
+            overview: details.overview,
+            release_date: details.release_date,
+            runtime: details.runtime,
+            vote_average: details.vote_average,
+            poster_path: details.poster_path,
+            backdrop_path: details.backdrop_path,
+            genres: details.genres?.map(g => g.name) || [],
+            trailer_key: trailer ? trailer.key : null, // para generar el embed de YouTube
+            homepage: details.homepage,
+            tagline: details.tagline,
+            status: details.status,
+            production_companies: details.production_companies?.map(c => c.name) || []
+        });
+
+    } catch (e) {
+        console.error("Error al obtener detalles:", e);
+        res.status(500).json({ error: 'Error al obtener los detalles de la película' });
     }
-  };
-
-  try {
-    // --- Obtener detalles de la película ---
-    const responseDetails = await fetch(movieDetailsUrl, options);
-    const details = await responseDetails.json();
-
-    // --- Obtener videos (para el tráiler) ---
-    const responseVideos = await fetch(movieVideosUrl, options);
-    const videos = await responseVideos.json();
-
-    // Buscar el tráiler oficial de YouTube
-    const trailer = videos.results?.find(
-      (v) => v.type === 'Trailer' && v.site === 'YouTube'
-    );
-
-    // --- Construir respuesta final ---
-    res.json({
-      id: details.id,
-      title: details.title,
-      original_title: details.original_title,
-      overview: details.overview,
-      release_date: details.release_date,
-      runtime: details.runtime,
-      vote_average: details.vote_average,
-      poster_path: details.poster_path,
-      backdrop_path: details.backdrop_path,
-      genres: details.genres?.map(g => g.name) || [],
-      trailer_key: trailer ? trailer.key : null, // para generar el embed de YouTube
-      homepage: details.homepage,
-      tagline: details.tagline,
-      status: details.status,
-      production_companies: details.production_companies?.map(c => c.name) || []
-    });
-
-  } catch (e) {
-    console.error("Error al obtener detalles:", e);
-    res.status(500).json({ error: 'Error al obtener los detalles de la película' });
-  }
 });
 
+router.get('/pelicula/:id', async (req, res) => {
+    const { id } = req.params;
+    const movieDetailsUrl = `https://api.themoviedb.org/3/movie/${id}?language=es-MX`;
 
+
+    const options = {
+        method: 'GET',
+        headers: {
+            accept: 'application/json',
+            Authorization: API_KEY
+        }
+    };
+
+    try {
+        // --- Obtener detalles de la película ---
+        const responseDetails = await fetch(movieDetailsUrl, options);
+        const details = await responseDetails.json();
+
+        // --- Obtener videos (para el tráiler) ---
+        const responseVideos = await fetch(movieVideosUrl, options);
+        const videos = await responseVideos.json();
+
+        // Buscar el tráiler oficial de YouTube
+        const trailer = videos.results?.find(
+            (v) => v.type === 'Trailer' && v.site === 'YouTube'
+        );
+
+        // --- Construir respuesta final ---
+        res.json({
+            id: details.id,
+            title: details.title,
+            original_title: details.original_title,
+            overview: details.overview,
+            release_date: details.release_date,
+            runtime: details.runtime,
+            vote_average: details.vote_average,
+            poster_path: details.poster_path,
+            backdrop_path: details.backdrop_path,
+            genres: details.genres?.map(g => g.name) || [],
+            trailer_key: trailer ? trailer.key : null, // para generar el embed de YouTube
+            homepage: details.homepage,
+            tagline: details.tagline,
+            status: details.status,
+            production_companies: details.production_companies?.map(c => c.name) || []
+        });
+
+    } catch (e) {
+        console.error("Error al obtener detalles:", e);
+        res.status(500).json({ error: 'Error al obtener los detalles de la película' });
+    }
+
+});
+
+// Obtener lista de peliculas populares
 router.get(`/get_movies/:page`, async (req, res) => {
     const page = req.params.page || 1; // Default to page 1 if not provided
     const url = `https://api.themoviedb.org/3/discover/movie?include_adult=false&include_video=false&language=es-MX&page=${page}&sort_by=popularity.desc`;
@@ -206,12 +294,12 @@ router.get(`/get_movies/:page`, async (req, res) => {
     };
 
     const responseMovies = await fetch(url, options)
-    .then(res => res.json())
-    .catch(e => {
-        console.log(e);
-    })
+        .then(res => res.json())
+        .catch(e => {
+            console.log(e);
+        })
 
-    console.log("RESPONSE: ", responseMovies);
+    //console.log("RESPONSE: ", responseMovies);
 
     res.json({
         movies: responseMovies.results
@@ -219,12 +307,12 @@ router.get(`/get_movies/:page`, async (req, res) => {
 
 })
 
-router.get(`/aniadeLista/:pelicula/:usuario`, async(req, res) =>{
+router.get(`/aniadeLista/:pelicula/:usuario`, async (req, res) => {
     const pelicula = req.params.pelicula;
     const usuario = req.params.usuario;
     let peliculaExiste = false;
     let idUser = '';
-    
+
     const idUserQuery = 'SELECT id FROM Usuario WHERE nombre = ?';
     con.query(idUserQuery, [usuario], (err, results) => {
         if (results) {
@@ -234,7 +322,8 @@ router.get(`/aniadeLista/:pelicula/:usuario`, async(req, res) =>{
         if (err) {
             console.error('Error al buscar ID de usuario:', err);
             return res.status(500).json({ error: 'Error interno del servidor.' });
-        }});
+        }
+    });
 
     try {
         // Verificar si ya existe en la lista de favoritos
@@ -264,53 +353,41 @@ router.get(`/aniadeLista/:pelicula/:usuario`, async(req, res) =>{
             } else {
                 // Si la película ya existe, enviar respuesta
                 res.json({ success: false, message: 'La película ya está en la lista de favoritos' });
-            }});
+            }
+        });
     } catch (error) {
         console.error('Error general:', error);
         res.status(500).json({ error: 'Error interno del servidor.' });
     }
 })
 
-router.get(`/leerLista/:usuario`, async (req, res) => {
-    console.log('Leer lista de usuario:', req.params.usuario);
-    const usuario = req.params.usuario;
+// Leer lista de peliculas favoritas
+router.get(`/leerLista/:id`, async (req, res) => {
+    console.log('Leer lista de usuario:', req.params.id);
+    const userId = req.params.id;
+    log('ID de usuario recibido:', userId);
 
     try {
         // Buscar ID de usuario
-        const idQuery = 'SELECT id FROM Usuario WHERE nombre = ?';
-        
-        con.query(idQuery, [usuario], (err, results) => {
+        console.log('ID de usuario encontrado:', userId);
+
+        // Ahora buscar las películas favoritas (dentro del callback)
+        const query = `SELECT ID_pelicula FROM favorito where ID_usuario = ?`;
+
+        con.query(query, [userId], (err, results) => {
             if (err) {
-                console.error('Error al buscar ID de usuario:', err);
+                console.error('Error al obtener las películas favoritas:', err);
                 return res.status(500).json({ error: 'Error interno del servidor.' });
             }
 
-            if (results.length === 0) {
-                console.log('Usuario no encontrado');
-                return res.status(404).json({ error: 'Usuario no encontrado' });
+            if (results.length > 0) {
+                console.log('Películas favoritas encontradas:', results);
+                const peliculas = results.map(row => row.ID_pelicula);
+                res.json(peliculas);
+            } else {
+                console.log('No se encontraron películas favoritas para el usuario.');
+                res.json([]); // Enviar array vacío en lugar de error 404
             }
-
-            const idUser = results[0].id;
-            console.log('ID de usuario encontrado:', idUser);
-
-            // Ahora buscar las películas favoritas (dentro del callback)
-            const query = `SELECT ID_pelicula FROM favorito where ID_usuario = 501;`;
-
-            con.query(query, [idUser], (err, results) => {
-                if (err) {
-                    console.error('Error al obtener las películas favoritas:', err);
-                    return res.status(500).json({ error: 'Error interno del servidor.' });
-                }
-
-                if (results.length > 0) {
-                    console.log('Películas favoritas encontradas:', results);
-                    const peliculas = results.map(row => row.ID_pelicula);
-                    res.json(peliculas);
-                } else {
-                    console.log('No se encontraron películas favoritas para el usuario.');
-                    res.json([]); // Enviar array vacío en lugar de error 404
-                }
-            });
         });
 
     } catch (error) {
@@ -321,13 +398,13 @@ router.get(`/leerLista/:usuario`, async (req, res) => {
 
 
 router.post('/guardaReview', (req, res) => {
-    log('Registrar review' + req.body);
     const { usuario, pelicula, texto, calificacion } = req.body;
+    log('Guardar review para usuario:', usuario, 'película:', pelicula);
     idUser = '';
     idMovie = '';
-    
+
     // Verificar si el usuario existe
-    const idQuery = 'SELECT id FROM Usuario WHERE nombre = ?';
+    const idQuery = 'SELECT id FROM Usuario WHERE Nombre = ?';
     con.query(idQuery, [usuario], (err, results) => {
         if (err) {
             console.error('Error al verificar usuario:', err);
@@ -355,7 +432,7 @@ router.post('/guardaReview', (req, res) => {
         }
 
         // Insertar la nueva review
-        const insertQuery = 'INSERT INTO review (ID_usuario, ID_pelicula, contenido, calificacion) VALUES (?, ?, ?, ?)';
+        const insertQuery = 'INSERT INTO review (ID_usuario, ID_pelicula, contenido, score) VALUES (?, ?, ?, ?)';
         con.query(insertQuery, [idUser, pelicula, texto, calificacion], (err2) => {
             if (err2) {
                 console.error('Error al insertar review:', err2);
@@ -368,13 +445,14 @@ router.post('/guardaReview', (req, res) => {
     });
 });
 
+// Leer reviews
 router.get('/leerReviews/:pelicula', (req, res) => {
     log('Obtener reviews de la pelicula: ' + req.params.pelicula);
     const pelicula = req.params.pelicula;
-    
+
 
     const query = `
-        SELECT u.Nombre AS usuario, r.Contenido AS texto, r.Calificacion AS calificacion
+        SELECT u.Nombre AS usuario, r.Contenido AS texto, r.score AS calificacion, r.ID as idReview
         FROM Usuario u
         INNER JOIN review r ON u.ID = r.ID_usuario
         WHERE r.ID_pelicula = ?
@@ -392,67 +470,500 @@ router.get('/leerReviews/:pelicula', (req, res) => {
     });
 });
 
-router.post('/login', (req, res) => {
-    const user = req.body.user;
-    const pass = req.body.pass;
+// Borrar review
+router.get('/borrarReview/:id/:pelicula', (req, res) => {
+    const userId = req.params.id;
+    const pelicula = req.params.pelicula;
 
-    // Consulta para verificar si existe un usuario con esa contraseña
-    const query = 'SELECT * FROM Usuario WHERE nombre = ? AND contraseña = ?';
-    con.query(query, [user, pass], (err, results) => {
+    // Verificar si la película existe
+    const movieQuery = 'SELECT id FROM Pelicula WHERE nombre = ?';
+    con.query(movieQuery, [pelicula], (err2, results2) => {
+        if (err2) {
+            console.error('Error al verificar película:', err2);
+            return res.status(500).send(false);
+        }
+        if (results2.length === 0) {
+            console.log('Película no encontrada');
+            return res.status(404).send(false);
+        }
+        idMovie = results2[0].id;
+        // Borrar la review
+        const deleteQuery = 'DELETE FROM review WHERE ID_usuario = ? AND ID_pelicula = ?';
+        con.query(deleteQuery, [userId, idMovie], (err3) => {
+            if (err3) {
+                console.error('Error al borrar review:', err3);
+                return res.status(500).send(false);
+            }
+
+            console.log('Review borrada');
+            res.send(true);
+        }
+        );
+    });
+});
+
+router.delete('/review_d/:id', (req, res) => {
+    const id = req.params.id;
+
+    const deleteQuery = 'DELETE FROM review WHERE ID = ? ';
+    con.query(deleteQuery, [id], (err3) => {
+        if (err3) {
+            console.error('Error al borrar review:', err3);
+            return res.status(500).send(false);
+        }
+        console.log('Review borrada');
+        res.send(true);
+    }
+    );
+
+});
+
+
+// Editar review
+router.get('/editarReview/:id/:pelicula/:calificacion/:texto', (req, res) => {
+    const userId = req.params.id;
+    const pelicula = req.params.pelicula;
+    const calificacion = req.params.calificacion;
+    const texto = req.params.texto;
+    idMovie = '';
+
+
+    // Verificar si la película existe
+    const movieQuery = 'SELECT id FROM Pelicula WHERE nombre = ?';
+    con.query(movieQuery, [pelicula], (err2, results2) => {
+        if (err2) {
+            console.error('Error al verificar película:', err2);
+            return res.status(500).send(false);
+        }
+        if (results2.length === 0) {
+            console.log('Película no encontrada');
+            return res.status(404).send(false);
+        }
+        idMovie = results2[0].id;
+        // Actualizar la review
+        const updateQuery = 'UPDATE review SET contenido = ?, calificacion = ? WHERE ID_usuario = ? AND ID_pelicula = ?';
+        con.query(updateQuery, [texto, calificacion, userId, idMovie], (err3) => {
+            if (err3) {
+                console.error('Error al editar review:', err3);
+                return res.status(500).send(false);
+            }
+            console.log('Review editada');
+            res.send(true);
+        });
+    });
+});
+
+// Leer reviews
+router.post('/userReviews', (req, res) => {
+    const { id } = req.body;
+
+
+    const query = `
+        SELECT ID as 'id_review', ID_pelicula, Contenido, score FROM peliconnectdb.review where ID_usuario = ?
+    `;
+
+    con.query(query, [id], (err, results) => {
         if (err) {
-            console.error('Error al verificar credenciales:', err);
+            console.error('Error al obtener las reseñas:', err);
             return res.status(500).send('Error interno del servidor.');
         }
 
-        if (results.length > 0) {
-            console.log('Sesión iniciada');
+        res.json(results);
+
+        log('Reseñas obtenidas:', results);
+    });
+});
+
+
+// Iniciar sesión
+const crypto = require('crypto');
+
+router.post('/login', (req, res) => {
+    const user = req.body.user;
+    const pass = req.body.pass;
+    console.log(user)
+    const token2fa = req.body.token2fa;
+    const deviceToken = req.body.deviceToken; // Token del dispositivo confiable
+
+    if (!user || !pass) {
+        return res.status(400).json({ error: 'Faltan credenciales' });
+    }
+
+    const query = 'SELECT * FROM Usuario WHERE nombre = ?';
+    con.query(query, [user], async (err, results) => {
+        if (err) {
+            console.error('Error al verificar credenciales:', err);
+            return res.status(500).json({ error: 'Error interno del servidor' });
+        }
+
+        if (results.length === 0) {
+            return res.json({ success: false, error: 'Usuario no encontrado' });
+        }
+
+        const userData = results[0];
+
+        if (!userData.password) {
+            return res.status(500).json({ error: 'Error en datos de usuario' });
+        }
+
+        try {
+            const match = await bcrypt.compare(pass, userData.password);
+
+            if (!match) {
+                return res.json({ success: false, error: 'Contraseña incorrecta' });
+            }
+
+            if (!userData.activo) {
+                return res.json({ success: false, error: 'Tu cuenta esta baneada' })
+            }
+
+            // ✅ Usuario y contraseña correctos
+
+            // Si el usuario NO tiene 2FA activado, login directo
+            if (!userData.two_fa) {
+                return res.json({
+                    success: true,
+                    id: userData.ID,
+                    admin: userData.Admin,
+                    //token: generateJWT(userData.ID) // Tu función JWT
+                });
+            }
+
+            // ✅ Usuario tiene 2FA activado
+
+            // Verificar si el dispositivo ya es confiable
+            if (deviceToken) {
+                const checkDevice = 'SELECT * FROM trusted_devices WHERE user_id = ? AND device_token = ? AND expires_at > NOW()';
+                con.query(checkDevice, [userData.ID, deviceToken], (err, devices) => {
+                    if (err) {
+                        console.error('Error al verificar dispositivo:', err);
+                        return res.status(500).json({ error: 'Error interno' });
+                    }
+
+                    if (devices.length > 0) {
+                        // Dispositivo confiable válido
+                        return res.json({
+                            success: true,
+                            id: userData.ID,
+                            admin: userData.Admin,
+                            // token: generateJWT(userData.ID),
+                            deviceToken: deviceToken // Devolver el mismo token
+                        });
+                    } else {
+                        // Device token inválido o expirado, pedir 2FA
+                        return res.json({ two_fa: true });
+                    }
+                });
+            } else {
+                // No hay device token, pedir 2FA
+                return res.json({ two_fa: true });
+            }
+
+        } catch (error) {
+            console.error('Error al comparar contraseñas:', error);
+            res.status(500).json({ error: 'Error interno al comparar contraseñas' });
+        }
+    });
+});
+
+// ✅ Nuevo endpoint para verificar el código 2FA
+router.post('/verify-2fa', (req, res) => {
+    const user = req.body.user;
+    const pass = req.body.pass;
+    const token2fa = req.body.token2fa;
+    const loginDate = req.body.loginDate;
+    const loginTime = req.body.loginTime;
+    const deviceInfo = req.body.deviceInfo;
+    const location = req.body.location;
+
+    if (!user || !pass || !token2fa) {
+        return res.status(400).json({ error: 'Faltan datos' });
+    }
+
+    const query = 'SELECT * FROM Usuario WHERE nombre = ?';
+    con.query(query, [user], async (err, results) => {
+        if (err || results.length === 0) {
+            return res.status(500).json({ error: 'Error al verificar usuario' });
+        }
+
+        const userData = results[0];
+
+        try {
+            const match = await bcrypt.compare(pass, userData.password);
+            if (!match) {
+                return res.json({ success: false, error: 'Credenciales incorrectas' });
+            }
+
+            // Verificar el código 2FA con speakeasy (o tu librería)
+            const speakeasy = require('speakeasy');
+            const verified = speakeasy.totp.verify({
+                secret: userData.twofa_secret,
+                encoding: 'base32',
+                token: token2fa,
+                window: 1
+            });
+
+            if (!verified) {
+                return res.json({ success: false, error: 'Código 2FA incorrecto' });
+            }
+
+            // ✅ 2FA correcto, generar device token
+            const newDeviceToken = crypto.randomBytes(32).toString('hex');
+            const expiresAt = new Date();
+            expiresAt.setDate(expiresAt.getDate() + 30); // 30 días
+
+            const insertDevice = 'INSERT INTO trusted_devices (user_id, device_token, expires_at) VALUES (?, ?, ?)';
+            con.query(insertDevice, [userData.ID, newDeviceToken, expiresAt], async (err) => {
+                if (err) {
+                    console.error('Error al guardar dispositivo:', err);
+                    return res.status(500).json({ error: 'Error al guardar dispositivo' });
+                }
+
+                await sendloginEmail(userData.Correo, userData.Nombre, loginDate, loginTime, deviceInfo, location)
+
+                res.json({
+                    success: true,
+                    id: userData.ID,
+                    admin: userData.Admin,
+                    //token: generateJWT(userData.ID),
+                    deviceToken: newDeviceToken
+                });
+            });
+
+        } catch (error) {
+            console.error('Error:', error);
+            res.status(500).json({ error: 'Error interno' });
+        }
+    });
+});
+
+// Función helper para generar JWT (ajusta según tu implementación)
+function generateJWT(userId) {
+    const jwt = require('jsonwebtoken');
+    return jwt.sign({ id: userId }, 'tu_secret_key', { expiresIn: '24h' });
+}
+
+router.get('/trusted-devices/:userId', (req, res) => {
+    const query = 'SELECT id, created_at, expires_at FROM trusted_devices WHERE user_id = ? ORDER BY created_at DESC';
+    con.query(query, [req.params.userId], (err, results) => {
+        if (err) return res.status(500).json({ error: 'Error' });
+        res.json(results);
+    });
+});
+
+// Eliminar usuario (baja logica)
+router.post('/ban_user', (req, res) => {
+    const userId = req.body.id;
+    const bandate = req.body.bandate;
+    const banReason = req.body.banReason;
+
+    console.log('ID de usuario a eliminar:', userId);
+
+    // Marcar usuario como eliminado
+    const query = 'UPDATE Usuario SET activo = 0 WHERE id = ?';
+    con.query(query, [userId], (err, results) => {
+        if (err) {
+            console.error('Error al eliminar usuario:', err);
+            return res.status(500).send('Error interno del servidor.');
+        }
+
+        if (results.affectedRows > 0) {
+            console.log('Usuario eliminado');
+
+            con.query('SELECT id, nombre, Correo, two_fa FROM usuario WHERE id = ?', [userId], async (err, results) => {
+                if (err) {
+                    console.error('Error al obtener usuario:', err);
+                    return res.status(500).json({ error: 'Error al obtener usuarios' });
+                }
+
+                const userData = results[0];
+
+                await sendBanEmail(userData.Correo, userData.nombre, bandate, banReason);
+
+
+                console.log('Usuarios obtenidos:', results);
+            }
+            );
+
             res.send(true);
         } else {
-            console.log('Fallo en inicio de sesión');
+            console.log('Usuario no encontrado');
             res.send(false);
         }
     });
 });
 
-router.post(`/registrarUsuario`, async (req, res) =>{
-    console.log('entro a funcion');
-    const user = req.body.user;
-    const pass = req.body.pass;
-    log('Registrar usuario: ' + user + pass);
-
-    // Verificar si el usuario ya existe
-    con.query('SELECT * FROM Usuario WHERE nombre = ?', [user], async (err, results) => {
+router.delete('/delete_user', (req, res) => {
+    const userId = req.body.id;
+    const sql = "DELETE FROM usuario WHERE id = ?";
+    con.query(sql, [userId], (err, result) => {
         if (err) {
-            console.error('Error en la consulta:', err);
-            return res.status(500).send('Error interno');
+            console.error('Error al Eliminar Cuenta:', err);
+            return res.status(500).send('Error interno del servidor.');
         }
-
-        if (results.length > 0) {
-            console.log('Usuario ya existente');
-            return res.send(false);
-        }
-
-        // Usuario no existe, registrarlo
-        try {
-            con.query(
-                'INSERT INTO Usuario (nombre, contraseña) VALUES (?, ?)',
-                [user, pass],
-                (err2, results2) => {
-                    if (err2) {
-                        console.error('Error al insertar usuario:', err2);
-                        return res.status(500).send('Error al registrar usuario');
-                    }
-
-                    console.log('Usuario registrado');
-                    res.send(true);
-                }
-            );
-        } catch (error) {
-            console.error('Error al registrar ususario:', error);
-            res.status(500).send('Error interno');
+        if (result.affectedRows > 0) {
+            console.log('Cuenta Eliminada');
+            res.send(true);
+        } else {
+            console.log('Usuario no encontrado');
+            res.send(false);
         }
     });
-})
+});
+
+// Activar usuario
+router.post('/activate_user', (req, res) => {
+    const userId = req.body.id;
+    // Buscar ID de usuario
+    console.log('ID de usuario a activar:', userId);
+    // Marcar usuario como activo
+    const query = 'UPDATE Usuario SET activo = 1 WHERE id = ?';
+    con.query(query, [userId], (err, results) => {
+        if (err) {
+            console.error('Error al activar usuario:', err);
+            return res.status(500).send('Error interno del servidor.');
+        }
+        if (results.affectedRows > 0) {
+            console.log('Usuario activado');
+            res.send(true);
+        } else {
+            console.log('Usuario no encontrado');
+            res.send(false);
+        }
+    });
+});
+// --------------------------------------- CRUD reporte ---------------------------------------
+
+// 🟢 Obtener todos los reportes
+router.get("/report/view", (req, res) => {
+    console.log("entre a report/view");
+
+    const sql = `
+    SELECT 
+    r.id_reporte,
+    r.descripcion,
+    r.estado,
+    r.fecha_reporte,
+
+    -- Usuario que hizo el REPORTE
+    r.id_user AS id_user,
+    u1.NOMBRE AS nombre_usuario_reporto,
+
+    -- Usuario que hizo la REVIEW
+    rv.ID_usuario AS id_user_review,
+    u2.NOMBRE AS nombre_usuario_review,
+
+    -- Película
+    rv.ID_pelicula AS id_pelicula
+
+FROM reporte r
+JOIN review rv 
+    ON r.id_review = rv.ID
+
+JOIN USUARIO u1 
+    ON r.id_user = u1.ID
+
+JOIN USUARIO u2 
+    ON rv.ID_usuario = u2.ID;
+
+`;
+    con.query(sql, (err, results) => {
+        if (err) return res.status(500).json({ error: err.message });
+        log(results);
+        res.json(results);
+    });
+});
+
+// 🔵 Obtener un reporte por ID
+router.get("/report/:id", (req, res) => {
+    const { id } = req.params;
+    const sql = "SELECT * FROM reporte WHERE id_reporte = ?";
+    con.query(sql, [id], (err, results) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (results.length === 0) return res.status(404).json({ message: "Reporte no encontrado" });
+        res.json(results[0]);
+    });
+});
+
+// 🟡 Crear un nuevo reporte
+router.post("/report", (req, res) => {
+    console.log("entro a crear reporte");
+    const { descripcion, id_user, id_review, fecha_reporte } = req.body;
+    console.log(req.body)
+    const sql = "INSERT INTO reporte (descripcion, id_user, id_review, fecha_reporte, estado) VALUES (?, ?, ?, ? ,?)";
+    con.query(sql, [descripcion, id_user, id_review, fecha_reporte, 'A'], (err, result) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ message: "Reporte creado", id: result.insertId });
+    });
+});
+
+// 🟠 Actualizar un reporte
+router.put("/report/", (req, res) => {
+    const { id } = req.params;
+    const { descripcion, id_user, id_review, fecha_reporte } = req.body;
+    const sql = "UPDATE reporte SET descripcion = ?, id_user = ?, id_review = ?, fecha_reporte = ? WHERE id_reporte = ?";
+    con.query(sql, [descripcion, id_user, id_review, fecha_reporte, id], (err, result) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (result.affectedRows === 0) return res.status(404).json({ message: "Reporte no encontrado" });
+        console.log(res)
+        res.json({ message: "Reporte actualizado" });
+    });
+});
+
+// 🟠 Actualizar un reporte admin
+router.put("/report_admin", (req, res) => {
+    const { id, estado } = req.body;
+
+    const sql = "UPDATE reporte SET estado = ? WHERE id_reporte = ?";
+
+    con.query(sql, [estado, id], (err, result) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (result.affectedRows === 0)
+            return res.status(404).json({ message: "Reporte no encontrado" });
+
+        res.json({ message: "Reporte actualizado" });
+    });
+});
+
+
+
+// 🔴 Eliminar un reporte
+router.delete("/report/:id", (req, res) => {
+    const { id } = req.params;
+    const sql = "DELETE FROM reporte WHERE id_reporte = ?";
+    con.query(sql, [id], (err, result) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (result.affectedRows === 0) return res.status(404).json({ message: "Reporte no encontrado" });
+        res.json({ message: "Reporte eliminado" });
+    });
+});
+
+
+// Función de ejemplo (asegúrate está definida antes)
+function calcularSuma(a, b) {
+    const numA = Number(a);
+    const numB = Number(b);
+    if (Number.isNaN(numA) || Number.isNaN(numB)) {
+        throw new Error('Parámetros no son números válidos');
+    }
+    return numA + numB;
+}
+
+// Ruta de ejemplo (si no la tienes ya)
+router.get('/calcular/suma/:a/:b', (req, res) => {
+    try {
+        const { a, b } = req.params;
+        const resultado = calcularSuma(a, b);
+        res.json({ a, b, resultado });
+    } catch (err) {
+        res.status(400).json({ error: err.message });
+    }
+});
+
+//funciones del servidor 
 
 app.use(router);
 module.exports = router;
+
+// Exportar para pruebas unitarias
+module.exports = { calcularSuma };

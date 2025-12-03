@@ -1,0 +1,7 @@
+bcrypt
+crypto
+express
+mysql2
+nodemailer
+cors
+bodyParser
